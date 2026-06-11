@@ -7,6 +7,7 @@ import type {
   TicketReply,
   Message,
   Partner,
+  OperationLog,
 } from "@/types";
 import {
   applications as mockApplications,
@@ -26,34 +27,6 @@ export interface AppKeyItem {
   expiresAt: string;
 }
 
-export interface ApiKeysState {
-  items: AppKeyItem[];
-  addKey: (key: Omit<AppKeyItem, "id">) => void;
-  rotateKey: (keyId: string) => AppKeyItem | null;
-  disableKey: (keyId: string) => void;
-}
-
-export interface WhitelistState {
-  ips: string[];
-  addIp: (ip: string) => void;
-  removeIp: (ip: string) => void;
-}
-
-export interface QuotaAlertState {
-  threshold: number;
-  notifySite: boolean;
-  notifyEmail: boolean;
-  notifySms: boolean;
-  updateSettings: (s: Partial<QuotaAlertState>) => void;
-}
-
-export interface ApiCatalogFilterState {
-  category: string;
-  search: string;
-  version: string;
-  setFilter: (f: Partial<ApiCatalogFilterState>) => void;
-}
-
 interface DataState {
   applications: Application[];
   permissions: Permission[];
@@ -61,6 +34,7 @@ interface DataState {
   messages: Message[];
   partners: Partner[];
   apiKeys: AppKeyItem[];
+  operationLogs: OperationLog[];
   whitelist: string[];
   quotaAlert: {
     threshold: number;
@@ -78,11 +52,14 @@ interface DataState {
   updateApplication: (id: string, updates: Partial<Application>) => void;
   deleteApplication: (id: string) => void;
   toggleApplicationStatus: (id: string) => void;
+  restoreApplication: (id: string) => void;
 
   addPermission: (p: Omit<Permission, "id" | "appliedAt" | "status" | "usedQuota">) => void;
   approvePermission: (id: string, quota: number, expiresAt: string) => void;
-  rejectPermission: (id: string) => void;
+  rejectPermission: (id: string, reason: string) => void;
   extendPermission: (id: string, expiresAt: string, quota?: number) => void;
+  batchApprovePermissions: (ids: string[], quota: number, expiresAt: string) => void;
+  batchRejectPermissions: (ids: string[], reason: string) => void;
 
   addTicket: (t: Omit<Ticket, "id" | "status" | "createdAt" | "replies">) => void;
   addTicketReply: (ticketId: string, reply: Omit<TicketReply, "id" | "createdAt" | "authorType">) => void;
@@ -93,6 +70,8 @@ interface DataState {
 
   approvePartner: (id: string) => void;
   rejectPartner: (id: string) => void;
+  batchApprovePartners: (ids: string[]) => void;
+  batchRejectPartners: (ids: string[]) => void;
 
   rotateAppKey: (keyId: string) => AppKeyItem | null;
   addAppKey: (key: Omit<AppKeyItem, "id">) => void;
@@ -126,6 +105,46 @@ const generateAppSecret = () => {
   return key;
 };
 
+const nowStr = () => new Date().toISOString().replace("T", " ").slice(0, 16);
+
+const addLog = (
+  set: (fn: (s: DataState) => Partial<DataState>) => void,
+  targetId: string,
+  targetType: OperationLog["targetType"],
+  action: OperationLog["action"],
+  detail: string,
+  impact: string
+) => {
+  const log: OperationLog = {
+    id: generateId(),
+    targetId,
+    targetType,
+    action,
+    operator: "管理员",
+    detail,
+    impact,
+    createdAt: nowStr(),
+  };
+  set((s) => ({ operationLogs: [log, ...s.operationLogs] }));
+};
+
+const addMsg = (
+  set: (fn: (s: DataState) => Partial<DataState>) => void,
+  title: string,
+  content: string,
+  type: Message["type"] = "approval"
+) => {
+  const msg: Message = {
+    id: generateId(),
+    title,
+    content,
+    type,
+    read: false,
+    createdAt: nowStr(),
+  };
+  set((s) => ({ messages: [msg, ...s.messages] }));
+};
+
 export const useDataStore = create<DataState>()(
   persist(
     (set, get) => ({
@@ -145,6 +164,7 @@ export const useDataStore = create<DataState>()(
           expiresAt: "2025-12-31 23:59",
         },
       ]),
+      operationLogs: [],
       whitelist: ["192.168.1.1", "10.0.0.0/24", "172.16.0.0/16"],
       quotaAlert: {
         threshold: 80,
@@ -166,7 +186,20 @@ export const useDataStore = create<DataState>()(
           appSecret: generateAppSecret(),
           createdAt: new Date().toISOString().split("T")[0],
         };
-        set((s) => ({ applications: [...s.applications, newApp] }));
+        const newKey: AppKeyItem = {
+          id: generateId(),
+          appId: newApp.id,
+          appKey: newApp.appKey,
+          appSecret: newApp.appSecret,
+          status: "active",
+          createdAt: nowStr(),
+          expiresAt: "2026-12-31 23:59",
+        };
+        set((s) => ({
+          applications: [...s.applications, newApp],
+          apiKeys: [...s.apiKeys, newKey],
+        }));
+        addLog(set, newApp.id, "application", "create", `创建应用「${newApp.name}」`, "自动生成 AppKey/AppSecret");
       },
 
       updateApplication: (id, updates) => {
@@ -178,23 +211,52 @@ export const useDataStore = create<DataState>()(
       },
 
       deleteApplication: (id) => {
+        const app = get().applications.find((a) => a.id === id);
         set((s) => ({
           applications: s.applications.map((a) =>
             a.id === id ? { ...a, status: "deleted" as const } : a
           ),
+          apiKeys: s.apiKeys.map((k) =>
+            k.appId === id ? { ...k, status: "disabled" as const } : k
+          ),
         }));
+        if (app) {
+          addLog(set, id, "application", "delete", `删除应用「${app.name}」`, "关联密钥已禁用，权限已归档，监控数据保留");
+        }
       },
 
       toggleApplicationStatus: (id) => {
+        const app = get().applications.find((a) => a.id === id);
         set((s) => ({
           applications: s.applications.map((a) => {
             if (a.id !== id) return a;
-            return {
-              ...a,
-              status: a.status === "active" ? "inactive" : ("active" as const),
-            };
+            const next = a.status === "active" ? "inactive" : ("active" as const);
+            return { ...a, status: next };
           }),
         }));
+        if (app) {
+          const isActive = app.status === "active";
+          addLog(
+            set, id, "application", "toggle_status",
+            isActive ? `停用应用「${app.name}」` : `恢复应用「${app.name}」`,
+            isActive ? "所有接口调用将被拒绝，密钥暂时失效" : "密钥恢复生效，接口调用恢复正常"
+          );
+        }
+      },
+
+      restoreApplication: (id) => {
+        const app = get().applications.find((a) => a.id === id);
+        set((s) => ({
+          applications: s.applications.map((a) =>
+            a.id === id ? { ...a, status: "active" as const } : a
+          ),
+          apiKeys: s.apiKeys.map((k) =>
+            k.appId === id && k.status === "disabled" ? { ...k, status: "active" as const } : k
+          ),
+        }));
+        if (app) {
+          addLog(set, id, "application", "restore", `恢复已删除应用「${app.name}」`, "密钥重新激活，权限恢复可见，下拉选择恢复显示");
+        }
       },
 
       addPermission: (p) => {
@@ -209,21 +271,31 @@ export const useDataStore = create<DataState>()(
       },
 
       approvePermission: (id, quota, expiresAt) => {
+        const perm = get().permissions.find((p) => p.id === id);
         set((s) => ({
           permissions: s.permissions.map((p) =>
             p.id === id
-              ? { ...p, status: "approved", quota, expiresAt }
+              ? { ...p, status: "approved", quota, expiresAt, approvedAt: nowStr() }
               : p
           ),
         }));
+        if (perm) {
+          addMsg(set, "权限申请已通过", `您申请的「${perm.apiName}」接口权限已通过审批，额度 ${quota.toLocaleString()} 次/天，有效期至 ${expiresAt}`);
+          addLog(set, id, "permission", "approve", `通过「${perm.appName}」的「${perm.apiName}」权限申请`, `额度 ${quota.toLocaleString()} 次/天，有效期至 ${expiresAt}`);
+        }
       },
 
-      rejectPermission: (id) => {
+      rejectPermission: (id, reason) => {
+        const perm = get().permissions.find((p) => p.id === id);
         set((s) => ({
           permissions: s.permissions.map((p) =>
-            p.id === id ? { ...p, status: "rejected" } : p
+            p.id === id ? { ...p, status: "rejected", rejectReason: reason, approvedAt: nowStr() } : p
           ),
         }));
+        if (perm) {
+          addMsg(set, "权限申请已拒绝", `您申请的「${perm.apiName}」接口权限未通过审批，原因：${reason || "无"}`);
+          addLog(set, id, "permission", "reject", `拒绝「${perm.appName}」的「${perm.apiName}」权限申请`, reason ? `拒绝原因：${reason}` : "未填写拒绝原因");
+        }
       },
 
       extendPermission: (id, expiresAt, quota) => {
@@ -234,6 +306,44 @@ export const useDataStore = create<DataState>()(
               : p
           ),
         }));
+        const perm = get().permissions.find((p) => p.id === id);
+        if (perm) {
+          addLog(set, id, "permission", "extend", `延期「${perm.apiName}」权限至 ${expiresAt}`, quota ? `新额度：${quota.toLocaleString()} 次/天` : "额度不变");
+        }
+      },
+
+      batchApprovePermissions: (ids, quota, expiresAt) => {
+        set((s) => ({
+          permissions: s.permissions.map((p) =>
+            ids.includes(p.id)
+              ? { ...p, status: "approved", quota, expiresAt, approvedAt: nowStr() }
+              : p
+          ),
+        }));
+        ids.forEach((pid) => {
+          const perm = get().permissions.find((p) => p.id === pid);
+          if (perm) {
+            addMsg(set, "权限申请已通过", `您申请的「${perm.apiName}」接口权限已通过审批`);
+          }
+        });
+        addLog(set, ids.join(","), "permission", "approve", `批量通过 ${ids.length} 条权限申请`, `统一额度 ${quota.toLocaleString()} 次/天，有效期至 ${expiresAt}`);
+      },
+
+      batchRejectPermissions: (ids, reason) => {
+        set((s) => ({
+          permissions: s.permissions.map((p) =>
+            ids.includes(p.id)
+              ? { ...p, status: "rejected", rejectReason: reason, approvedAt: nowStr() }
+              : p
+          ),
+        }));
+        ids.forEach((pid) => {
+          const perm = get().permissions.find((p) => p.id === pid);
+          if (perm) {
+            addMsg(set, "权限申请已拒绝", `您申请的「${perm.apiName}」接口权限未通过审批${reason ? `，原因：${reason}` : ""}`);
+          }
+        });
+        addLog(set, ids.join(","), "permission", "reject", `批量拒绝 ${ids.length} 条权限申请`, reason ? `拒绝原因：${reason}` : "");
       },
 
       addTicket: (t) => {
@@ -241,10 +351,7 @@ export const useDataStore = create<DataState>()(
           ...t,
           id: generateId(),
           status: "open",
-          createdAt: new Date()
-            .toISOString()
-            .replace("T", " ")
-            .slice(0, 16),
+          createdAt: nowStr(),
           replies: [],
         };
         set((s) => ({ tickets: [newTicket, ...s.tickets] }));
@@ -254,10 +361,7 @@ export const useDataStore = create<DataState>()(
         const newReply: TicketReply = {
           ...reply,
           id: generateId(),
-          createdAt: new Date()
-            .toISOString()
-            .replace("T", " ")
-            .slice(0, 16),
+          createdAt: nowStr(),
           authorType: reply.author === "我" ? "user" : "admin",
         };
         set((s) => ({
@@ -296,19 +400,53 @@ export const useDataStore = create<DataState>()(
       },
 
       approvePartner: (id) => {
+        const partner = get().partners.find((p) => p.id === id);
         set((s) => ({
           partners: s.partners.map((p) =>
             p.id === id ? { ...p, status: "approved" } : p
           ),
         }));
+        if (partner) {
+          addMsg(set, "入驻申请已通过", `合作方「${partner.name}」的入驻申请已通过审批`);
+          addLog(set, id, "partner", "approve", `通过合作方「${partner.name}」入驻申请`, "合作方可正常创建应用和申请接口");
+        }
       },
 
       rejectPartner: (id) => {
+        const partner = get().partners.find((p) => p.id === id);
         set((s) => ({
           partners: s.partners.map((p) =>
             p.id === id ? { ...p, status: "rejected" } : p
           ),
         }));
+        if (partner) {
+          addMsg(set, "入驻申请已拒绝", `合作方「${partner.name}」的入驻申请未通过审批`);
+          addLog(set, id, "partner", "reject", `拒绝合作方「${partner.name}」入驻申请`, "合作方无法创建应用");
+        }
+      },
+
+      batchApprovePartners: (ids) => {
+        set((s) => ({
+          partners: s.partners.map((p) =>
+            ids.includes(p.id) ? { ...p, status: "approved" } : p
+          ),
+        }));
+        ids.forEach((pid) => {
+          const partner = get().partners.find((p) => p.id === pid);
+          if (partner) {
+            addMsg(set, "入驻申请已通过", `合作方「${partner.name}」的入驻申请已通过审批`);
+          }
+        });
+        addLog(set, ids.join(","), "partner", "approve", `批量通过 ${ids.length} 条入驻申请`, "合作方可正常创建应用和申请接口");
+      },
+
+      batchRejectPartners: (ids) => {
+        set((s) => ({
+          partners: s.partners.map((p) =>
+            ids.includes(p.id) ? { ...p, status: "rejected" } : p
+          ),
+        }));
+        addLog(set, ids.join(","), "partner", "reject", `批量拒绝 ${ids.length} 条入驻申请`, "");
       },
 
       rotateAppKey: (keyId) => {
@@ -324,6 +462,7 @@ export const useDataStore = create<DataState>()(
             k.id === keyId ? newKey : k
           ),
         }));
+        addLog(set, keyId, "key", "rotate", `轮换密钥 ${key.appKey}`, "旧 Secret 立即失效，请及时更新调用配置");
         return newKey;
       },
 
@@ -377,6 +516,7 @@ export const useDataStore = create<DataState>()(
         messages: state.messages,
         partners: state.partners,
         apiKeys: state.apiKeys,
+        operationLogs: state.operationLogs,
         whitelist: state.whitelist,
         quotaAlert: state.quotaAlert,
         catalogFilter: state.catalogFilter,

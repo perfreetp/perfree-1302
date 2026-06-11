@@ -45,7 +45,7 @@ import { callStats, apis } from "@/mock";
 import { useDataStore } from "@/store/dataStore";
 import type { Application } from "@/types";
 
-type TabType = "info" | "keys" | "permissions" | "overview";
+type TabType = "info" | "keys" | "permissions" | "overview" | "logs";
 
 interface FormData {
   name: string;
@@ -83,8 +83,10 @@ export default function AppDetail() {
     updateApplication,
     deleteApplication,
     toggleApplicationStatus,
+    restoreApplication,
     rotateAppKey,
     addPermission,
+    operationLogs,
   } = useDataStore();
 
   const [activeTab, setActiveTab] = useState<TabType>("info");
@@ -94,6 +96,7 @@ export default function AppDetail() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showToggleModal, setShowToggleModal] = useState(false);
   const [showApplyModal, setShowApplyModal] = useState(false);
+  const [showRestoreModal, setShowRestoreModal] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
   const [formData, setFormData] = useState<FormData>({
@@ -112,6 +115,10 @@ export default function AppDetail() {
   const app = useMemo(() => applications.find((a) => a.id === id), [applications, id]);
   const appPermissions = useMemo(() => permissions.filter((p) => p.appId === id), [permissions, id]);
   const appApiKeys = useMemo(() => apiKeys.filter((k) => k.appId === id), [apiKeys, id]);
+  const appOperationLogs = useMemo(
+    () => operationLogs.filter((log) => log.targetId === id && log.targetType === "application"),
+    [operationLogs, id]
+  );
 
   const showToast = (message: string, type: "success" | "error" = "success") => {
     setToast({ message, type });
@@ -133,7 +140,7 @@ export default function AppDetail() {
       case "pending":
         return <span className="badge-warning badge"><span className="w-1.5 h-1.5 rounded-full bg-warning-400 mr-1.5" />待审核</span>;
       case "deleted":
-        return <span className="badge-error badge"><span className="w-1.5 h-1.5 rounded-full bg-red-400 mr-1.5" />已删除</span>;
+        return <span className="badge-error badge"><span className="w-1.5 h-1.5 rounded-full bg-red-400 mr-1.5" />已归档</span>;
     }
   };
 
@@ -187,8 +194,7 @@ export default function AppDetail() {
     if (!app) return;
     deleteApplication(app.id);
     setShowDeleteModal(false);
-    showToast("应用已删除");
-    setTimeout(() => navigate("/apps"), 1000);
+    showToast("应用已归档删除");
   };
 
   const handleToggleStatus = () => {
@@ -196,6 +202,13 @@ export default function AppDetail() {
     toggleApplicationStatus(app.id);
     setShowToggleModal(false);
     showToast(app.status === "active" ? "应用已停用" : "应用已恢复运行");
+  };
+
+  const handleRestore = () => {
+    if (!app) return;
+    restoreApplication(app.id);
+    setShowRestoreModal(false);
+    showToast("应用已恢复，密钥已重新激活");
   };
 
   const handleRotateKey = (keyId: string) => {
@@ -261,29 +274,15 @@ export default function AppDetail() {
     );
   }
 
-  if (app.status === "deleted") {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] animate-fade-in">
-        <div className="card p-10 text-center max-w-md">
-          <div className="w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center mx-auto mb-4">
-            <Trash2 className="w-8 h-8 text-red-400" />
-          </div>
-          <h2 className="text-xl font-bold text-white mb-2">应用已删除</h2>
-          <p className="text-dark-400 mb-6">该应用已被删除，无法查看详情</p>
-          <button onClick={() => navigate("/apps")} className="btn-primary gap-2">
-            <ArrowLeft className="w-4 h-4" />
-            返回应用列表
-          </button>
-        </div>
-      </div>
-    );
-  }
+  const isArchived = app.status === "deleted";
+  const isInactive = app.status === "inactive";
 
   const tabs: { key: TabType; label: string; icon: typeof Info }[] = [
     { key: "info", label: "应用信息", icon: Info },
     { key: "keys", label: "密钥管理", icon: Key },
     { key: "permissions", label: "接口权限", icon: Shield },
     { key: "overview", label: "调用概览", icon: BarChart3 },
+    { key: "logs", label: "操作记录", icon: Clock },
   ];
 
   return (
@@ -302,6 +301,42 @@ export default function AppDetail() {
             <AlertTriangle className="w-5 h-5" />
           )}
           <span className="font-medium">{toast.message}</span>
+        </div>
+      )}
+
+      {isArchived && (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-5 py-4 flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-3">
+            <Trash2 className="w-5 h-5 text-red-400 flex-shrink-0" />
+            <span className="text-red-300 text-sm">
+              此应用已归档删除，密钥已禁用，权限已冻结。如需恢复请点击右侧按钮。
+            </span>
+          </div>
+          <button
+            onClick={() => setShowRestoreModal(true)}
+            className="btn-sm gap-2 bg-green-500/20 text-green-400 border border-green-500/30 hover:bg-green-500/30 flex-shrink-0"
+          >
+            <PlayCircle className="w-4 h-4" />
+            恢复应用
+          </button>
+        </div>
+      )}
+
+      {isInactive && (
+        <div className="rounded-xl border border-warning-500/30 bg-warning-500/10 px-5 py-4 flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-3">
+            <PauseCircle className="w-5 h-5 text-warning-400 flex-shrink-0" />
+            <span className="text-warning-300 text-sm">
+              此应用已停用，所有接口调用将被拒绝。
+            </span>
+          </div>
+          <button
+            onClick={() => setShowToggleModal(true)}
+            className="btn-sm gap-2 bg-green-500/20 text-green-400 border border-green-500/30 hover:bg-green-500/30 flex-shrink-0"
+          >
+            <PlayCircle className="w-4 h-4" />
+            恢复应用
+          </button>
         </div>
       )}
 
@@ -334,37 +369,41 @@ export default function AppDetail() {
           </div>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
-          <button onClick={openEditModal} className="btn-secondary btn-sm gap-2">
-            <Edit3 className="w-4 h-4" />
-            编辑应用
-          </button>
-          {app.status !== "pending" && (
-            <button
-              onClick={() => setShowToggleModal(true)}
-              className={`btn-sm gap-2 ${
-                app.status === "active" ? "btn-secondary" : "btn-outline"
-              }`}
-            >
-              {app.status === "active" ? (
-                <>
-                  <PauseCircle className="w-4 h-4" />
-                  停用
-                </>
-              ) : (
-                <>
-                  <PlayCircle className="w-4 h-4" />
-                  恢复
-                </>
+          {!isArchived && (
+            <>
+              <button onClick={openEditModal} className="btn-secondary btn-sm gap-2">
+                <Edit3 className="w-4 h-4" />
+                编辑应用
+              </button>
+              {app.status !== "pending" && (
+                <button
+                  onClick={() => setShowToggleModal(true)}
+                  className={`btn-sm gap-2 ${
+                    app.status === "active" ? "btn-secondary" : "btn-outline"
+                  }`}
+                >
+                  {app.status === "active" ? (
+                    <>
+                      <PauseCircle className="w-4 h-4" />
+                      停用
+                    </>
+                  ) : (
+                    <>
+                      <PlayCircle className="w-4 h-4" />
+                      恢复
+                    </>
+                  )}
+                </button>
               )}
-            </button>
+              <button
+                onClick={() => setShowDeleteModal(true)}
+                className="btn-danger btn-sm gap-2"
+              >
+                <Trash2 className="w-4 h-4" />
+                删除应用
+              </button>
+            </>
           )}
-          <button
-            onClick={() => setShowDeleteModal(true)}
-            className="btn-danger btn-sm gap-2"
-          >
-            <Trash2 className="w-4 h-4" />
-            删除应用
-          </button>
         </div>
       </div>
 
@@ -480,11 +519,16 @@ export default function AppDetail() {
               ) : (
                 <div className="space-y-4">
                   {appApiKeys.map((keyItem) => (
-                    <div key={keyItem.id} className="card p-5">
-                      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+                    <div key={keyItem.id} className="relative card p-5">
+                      {isArchived && (
+                        <div className="absolute inset-0 bg-dark-950/60 rounded-xl z-10 flex items-center justify-center pointer-events-none">
+                          <span className="badge-error badge text-base">已禁用</span>
+                        </div>
+                      )}
+                      <div className={`flex items-center justify-between mb-4 flex-wrap gap-3 ${isInactive ? "border border-warning-500/30 rounded-lg p-3 -m-3" : ""}`}>
                         <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-lg bg-primary-500/20 flex items-center justify-center">
-                            <Key className="w-5 h-5 text-primary-400" />
+                          <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${isInactive ? "bg-warning-500/20" : "bg-primary-500/20"}`}>
+                            <Key className={`w-5 h-5 ${isInactive ? "text-warning-400" : "text-primary-400"}`} />
                           </div>
                           <div>
                             <div className="font-medium text-white">密钥凭证</div>
@@ -494,23 +538,29 @@ export default function AppDetail() {
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
-                          {keyItem.status === "active" && (
-                            <span className="badge badge-success">生效中</span>
-                          )}
-                          {keyItem.status === "disabled" && (
-                            <span className="badge badge-default">已停用</span>
-                          )}
-                          {keyItem.status === "rotated" && (
-                            <span className="badge badge-warning">已轮换</span>
-                          )}
-                          {keyItem.status === "active" && (
-                            <button
-                              onClick={() => handleRotateKey(keyItem.id)}
-                              className="btn-secondary btn-sm gap-1.5"
-                            >
-                              <RefreshCw className="w-3.5 h-3.5" />
-                              轮换密钥
-                            </button>
+                          {isArchived ? (
+                            <span className="badge badge-default">已禁用</span>
+                          ) : (
+                            <>
+                              {keyItem.status === "active" && !isInactive && (
+                                <span className="badge badge-success">生效中</span>
+                              )}
+                              {(keyItem.status === "disabled" || isInactive) && (
+                                <span className="badge badge-warning">已停用</span>
+                              )}
+                              {keyItem.status === "rotated" && (
+                                <span className="badge badge-warning">已轮换</span>
+                              )}
+                              {keyItem.status === "active" && !isInactive && (
+                                <button
+                                  onClick={() => handleRotateKey(keyItem.id)}
+                                  className="btn-secondary btn-sm gap-1.5"
+                                >
+                                  <RefreshCw className="w-3.5 h-3.5" />
+                                  轮换密钥
+                                </button>
+                              )}
+                            </>
                           )}
                         </div>
                       </div>
@@ -519,58 +569,17 @@ export default function AppDetail() {
                         <div>
                           <div className="flex items-center justify-between mb-1.5">
                             <label className="text-xs font-medium text-dark-400">AppKey</label>
-                            <button
-                              onClick={() => copyText(keyItem.appKey, `key-${keyItem.id}`)}
-                              className="text-xs text-primary-400 hover:text-primary-300 flex items-center gap-1"
-                            >
-                              {copiedId === `key-${keyItem.id}` ? (
-                                <>
-                                  <Check className="w-3 h-3" />
-                                  已复制
-                                </>
-                              ) : (
-                                <>
-                                  <Copy className="w-3 h-3" />
-                                  复制
-                                </>
-                              )}
-                            </button>
-                          </div>
-                          <div className="bg-dark-950 border border-dark-800 rounded-lg px-4 py-3 font-mono text-sm text-dark-200">
-                            {keyItem.appKey}
-                          </div>
-                        </div>
-
-                        <div>
-                          <div className="flex items-center justify-between mb-1.5">
-                            <label className="text-xs font-medium text-dark-400">AppSecret</label>
-                            <div className="flex items-center gap-3">
+                            {isArchived ? (
+                              <span className="text-xs text-dark-500 flex items-center gap-1">
+                                <Copy className="w-3 h-3" />
+                                已禁用
+                              </span>
+                            ) : (
                               <button
-                                onClick={() =>
-                                  setShowSecret((prev) => ({
-                                    ...prev,
-                                    [keyItem.id]: !prev[keyItem.id],
-                                  }))
-                                }
-                                className="text-xs text-dark-400 hover:text-white flex items-center gap-1"
-                              >
-                                {showSecret[keyItem.id] ? (
-                                  <>
-                                    <EyeOff className="w-3 h-3" />
-                                    隐藏
-                                  </>
-                                ) : (
-                                  <>
-                                    <Eye className="w-3 h-3" />
-                                    显示
-                                  </>
-                                )}
-                              </button>
-                              <button
-                                onClick={() => copyText(keyItem.appSecret, `secret-${keyItem.id}`)}
+                                onClick={() => copyText(keyItem.appKey, `key-${keyItem.id}`)}
                                 className="text-xs text-primary-400 hover:text-primary-300 flex items-center gap-1"
                               >
-                                {copiedId === `secret-${keyItem.id}` ? (
+                                {copiedId === `key-${keyItem.id}` ? (
                                   <>
                                     <Check className="w-3 h-3" />
                                     已复制
@@ -582,7 +591,62 @@ export default function AppDetail() {
                                   </>
                                 )}
                               </button>
-                            </div>
+                            )}
+                          </div>
+                          <div className="bg-dark-950 border border-dark-800 rounded-lg px-4 py-3 font-mono text-sm text-dark-200">
+                            {keyItem.appKey}
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <label className="text-xs font-medium text-dark-400">AppSecret</label>
+                            {isArchived ? (
+                              <span className="text-xs text-dark-500 flex items-center gap-1">
+                                <Copy className="w-3 h-3" />
+                                已禁用
+                              </span>
+                            ) : (
+                              <div className="flex items-center gap-3">
+                                <button
+                                  onClick={() =>
+                                    setShowSecret((prev) => ({
+                                      ...prev,
+                                      [keyItem.id]: !prev[keyItem.id],
+                                    }))
+                                  }
+                                  className="text-xs text-dark-400 hover:text-white flex items-center gap-1"
+                                >
+                                  {showSecret[keyItem.id] ? (
+                                    <>
+                                      <EyeOff className="w-3 h-3" />
+                                      隐藏
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Eye className="w-3 h-3" />
+                                      显示
+                                    </>
+                                  )}
+                                </button>
+                                <button
+                                  onClick={() => copyText(keyItem.appSecret, `secret-${keyItem.id}`)}
+                                  className="text-xs text-primary-400 hover:text-primary-300 flex items-center gap-1"
+                                >
+                                  {copiedId === `secret-${keyItem.id}` ? (
+                                    <>
+                                      <Check className="w-3 h-3" />
+                                      已复制
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Copy className="w-3 h-3" />
+                                      复制
+                                    </>
+                                  )}
+                                </button>
+                              </div>
+                            )}
                           </div>
                           <div className="bg-dark-950 border border-dark-800 rounded-lg px-4 py-3 font-mono text-sm text-dark-200">
                             {showSecret[keyItem.id]
@@ -621,13 +685,15 @@ export default function AppDetail() {
                     共 {appPermissions.length} 条权限记录
                   </p>
                 </div>
-                <button
-                  onClick={() => setShowApplyModal(true)}
-                  className="btn-primary btn-sm gap-2"
-                >
-                  <Plus className="w-4 h-4" />
-                  申请权限
-                </button>
+                {!isArchived && (
+                  <button
+                    onClick={() => setShowApplyModal(true)}
+                    className="btn-primary btn-sm gap-2"
+                  >
+                    <Plus className="w-4 h-4" />
+                    申请权限
+                  </button>
+                )}
               </div>
 
               <div className="card overflow-hidden">
@@ -676,12 +742,12 @@ export default function AppDetail() {
                                 </div>
                               </td>
                               <td className="px-5 py-4 text-dark-200">
-                                {p.status === "approved"
+                                {p.status === "approved" || isArchived
                                   ? `${p.quota.toLocaleString()} 次/天`
                                   : "-"}
                               </td>
                               <td className="px-5 py-4">
-                                {p.status === "approved" ? (
+                                {p.status === "approved" && !isArchived ? (
                                   <div className="flex items-center gap-3">
                                     <div className="w-24 h-2 bg-dark-800 rounded-full overflow-hidden">
                                       <div
@@ -707,7 +773,11 @@ export default function AppDetail() {
                                 {p.expiresAt || "-"}
                               </td>
                               <td className="px-5 py-4">
-                                {getPermissionStatusBadge(p.status)}
+                                {isArchived ? (
+                                  <span className="badge badge-default">已归档</span>
+                                ) : (
+                                  getPermissionStatusBadge(p.status)
+                                )}
                               </td>
                             </tr>
                           );
@@ -721,7 +791,12 @@ export default function AppDetail() {
           )}
 
           {activeTab === "overview" && (
-            <div className="space-y-6 animate-fade-in">
+            <div className="space-y-6 animate-fade-in relative">
+              {isArchived && (
+                <div className="absolute inset-0 bg-dark-950/60 z-10 rounded-xl flex items-center justify-center pointer-events-none">
+                  <span className="text-2xl font-bold text-dark-400/60 select-none">数据已归档</span>
+                </div>
+              )}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                 <div className="card p-6">
                   <div className="flex items-start justify-between mb-4">
@@ -949,6 +1024,59 @@ export default function AppDetail() {
                   </ResponsiveContainer>
                 </div>
               </div>
+            </div>
+          )}
+
+          {activeTab === "logs" && (
+            <div className="space-y-4 max-w-4xl animate-fade-in">
+              <h3 className="font-semibold text-white text-lg">操作记录</h3>
+              {appOperationLogs.length === 0 ? (
+                <div className="card p-10 text-center">
+                  <Clock className="w-12 h-12 text-dark-600 mx-auto mb-3" />
+                  <p className="text-dark-400">暂无操作记录</p>
+                </div>
+              ) : (
+                <div className="relative pl-8">
+                  <div className="absolute left-3 top-2 bottom-2 w-0.5 bg-dark-800" />
+                  {appOperationLogs.map((log) => {
+                    const actionConfig: Record<string, { label: string; color: string; icon: typeof Info }> = {
+                      create: { label: "创建", color: "bg-green-500", icon: CheckCircle2 },
+                      delete: { label: "删除", color: "bg-red-500", icon: Trash2 },
+                      toggle_status: { label: "停用/恢复", color: "bg-warning-500", icon: PauseCircle },
+                      restore: { label: "恢复", color: "bg-green-500", icon: PlayCircle },
+                      approve: { label: "审批", color: "bg-primary-500", icon: CheckCircle2 },
+                      reject: { label: "拒绝", color: "bg-red-500", icon: X },
+                      extend: { label: "延期", color: "bg-accent-500", icon: Clock },
+                      rotate: { label: "轮换", color: "bg-warning-500", icon: RefreshCw },
+                    };
+                    const config = actionConfig[log.action] || { label: log.action, color: "bg-dark-500", icon: Info };
+                    const ActionIcon = config.icon;
+                    return (
+                      <div key={log.id} className="relative pb-8 last:pb-0">
+                        <div className={`absolute -left-1 w-8 h-8 rounded-full flex items-center justify-center ${config.color} text-white`}>
+                          <ActionIcon className="w-4 h-4" />
+                        </div>
+                        <div className="card p-5 ml-4">
+                          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                            <div className="flex items-center gap-3">
+                              <span className="text-base font-semibold text-white">{config.label}</span>
+                              <span className="text-sm text-dark-500">{log.operator}</span>
+                            </div>
+                            <span className="text-sm text-dark-500">{log.createdAt}</span>
+                          </div>
+                          <p className="text-sm text-dark-300 mb-2">{log.detail}</p>
+                          {log.impact && (
+                            <div className="text-xs text-dark-500 bg-dark-950 rounded-lg px-3 py-2 inline-flex items-center gap-1.5">
+                              <Zap className="w-3 h-3" />
+                              影响范围：{log.impact}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1239,6 +1367,38 @@ export default function AppDetail() {
                 className="btn-primary"
               >
                 提交申请
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showRestoreModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in p-4">
+          <div className="bg-dark-900 rounded-2xl border border-dark-700 w-full max-w-md p-6 animate-slide-up">
+            <div className="flex items-center gap-4 mb-5">
+              <div className="w-12 h-12 rounded-full bg-green-500/10 flex items-center justify-center flex-shrink-0">
+                <PlayCircle className="w-6 h-6 text-green-400" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white">确认恢复应用</h3>
+                <p className="text-sm text-dark-400">恢复后密钥和权限将重新激活</p>
+              </div>
+            </div>
+            <div className="bg-dark-950 rounded-lg p-4 mb-6 border border-dark-800">
+              <p className="text-sm text-dark-300 leading-relaxed">
+                确定恢复此应用 <span className="text-white font-medium">「{app.name}」</span> 吗？恢复后密钥将重新激活，下拉选择将恢复显示。
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-3">
+              <button
+                onClick={() => setShowRestoreModal(false)}
+                className="btn-secondary"
+              >
+                取消
+              </button>
+              <button onClick={handleRestore} className="btn-primary">
+                确认恢复
               </button>
             </div>
           </div>

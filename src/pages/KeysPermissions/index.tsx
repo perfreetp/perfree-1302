@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import {
   Key,
   Copy,
@@ -40,17 +40,30 @@ export default function KeysPermissions() {
     [applications]
   );
 
+  const archivedApplications = useMemo(
+    () => applications.filter((a) => a.status === "deleted"),
+    [applications]
+  );
+
   const [showSecret, setShowSecret] = useState<Record<string, boolean>>({});
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [newIp, setNewIp] = useState("");
   const [selectedApp, setSelectedApp] = useState(activeApplications[0]);
+  const selectedAppStatusRef = useRef(selectedApp?.status);
+  const isArchived = selectedApp?.status === "deleted";
 
   useEffect(() => {
     const current = applications.find((a) => a.id === selectedApp?.id);
-    if (!current || current.status === "deleted") {
-      setSelectedApp(activeApplications[0]);
+    if (!current) {
+      setSelectedApp(activeApplications[0] || archivedApplications[0]);
+      return;
     }
-  }, [applications, activeApplications, selectedApp?.id]);
+    if (current.status === "deleted" && selectedAppStatusRef.current !== "deleted") {
+      setSelectedApp(activeApplications[0]);
+      return;
+    }
+    selectedAppStatusRef.current = current.status;
+  }, [applications, activeApplications, archivedApplications, selectedApp?.id]);
 
   const [rotateKeyId, setRotateKeyId] = useState<string | null>(null);
   const [showRotateConfirm, setShowRotateConfirm] = useState(false);
@@ -200,6 +213,7 @@ export default function KeysPermissions() {
           <button
             onClick={() => setShowPermissionModal(true)}
             className="btn-primary btn-sm gap-2"
+            disabled={isArchived}
           >
             <Plus className="w-4 h-4" />
             申请权限
@@ -207,8 +221,11 @@ export default function KeysPermissions() {
           <select
             value={selectedApp?.id || ""}
             onChange={(e) => {
-              const app = activeApplications.find((a) => a.id === e.target.value);
-              if (app) setSelectedApp(app);
+              const app = applications.find((a) => a.id === e.target.value);
+              if (app) {
+                setSelectedApp(app);
+                selectedAppStatusRef.current = app.status;
+              }
             }}
             className="input w-56"
           >
@@ -217,6 +234,15 @@ export default function KeysPermissions() {
                 {app.name}
               </option>
             ))}
+            {archivedApplications.length > 0 && (
+              <optgroup label="已归档应用">
+                {archivedApplications.map((app) => (
+                  <option key={app.id} value={app.id}>
+                    {app.name}（已归档）
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </select>
         </div>
       </div>
@@ -246,6 +272,15 @@ export default function KeysPermissions() {
         </div>
       </div>
 
+      {isArchived && (
+        <div className="flex items-center gap-3 p-4 rounded-xl border bg-dark-800/50 border-dark-700">
+          <AlertTriangle className="w-5 h-5 text-dark-400 flex-shrink-0" />
+          <p className="text-sm text-dark-300">
+            此应用已归档删除，密钥已禁用。如需恢复请前往应用管理页面。
+          </p>
+        </div>
+      )}
+
       {/* API Keys */}
       <div className="card">
         <div className="p-6 border-b border-dark-800 flex items-center justify-between">
@@ -260,7 +295,7 @@ export default function KeysPermissions() {
               </p>
             </div>
           </div>
-          <button className="btn-primary btn-sm gap-2">
+          <button className="btn-primary btn-sm gap-2" disabled={isArchived}>
             <Plus className="w-4 h-4" />
             创建密钥
           </button>
@@ -270,7 +305,7 @@ export default function KeysPermissions() {
           {appKeys.map((key) => (
             <div
               key={key.id}
-              className="bg-dark-950 rounded-xl p-5 border border-dark-800"
+              className={`bg-dark-950 rounded-xl p-5 border ${isArchived ? "border-dark-700 opacity-60" : "border-dark-800"}`}
             >
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center gap-3">
@@ -283,6 +318,7 @@ export default function KeysPermissions() {
                   <button
                     onClick={() => toggleSecret(key.id)}
                     className="p-2 rounded-lg hover:bg-dark-800 text-dark-400 hover:text-white transition-colors"
+                    disabled={isArchived}
                     title={showSecret[key.id] ? "隐藏" : "显示"}
                   >
                     {showSecret[key.id] ? (
@@ -294,11 +330,15 @@ export default function KeysPermissions() {
                   <button
                     onClick={() => handleRotateClick(key.id)}
                     className="p-2 rounded-lg hover:bg-dark-800 text-dark-400 hover:text-white transition-colors"
+                    disabled={isArchived}
                     title="轮换密钥"
                   >
                     <RefreshCw className="w-4 h-4" />
                   </button>
-                  <button className="p-2 rounded-lg hover:bg-dark-800 text-dark-400 hover:text-warning-400 transition-colors">
+                  <button
+                    className="p-2 rounded-lg hover:bg-dark-800 text-dark-400 hover:text-warning-400 transition-colors"
+                    disabled={isArchived}
+                  >
                     <Settings className="w-4 h-4" />
                   </button>
                 </div>
@@ -368,7 +408,8 @@ export default function KeysPermissions() {
                 </div>
                 <button
                   onClick={() => handleRotateClick(key.id)}
-                  className="text-warning-400 hover:text-warning-300 text-xs font-medium flex items-center gap-1"
+                  disabled={isArchived}
+                  className="text-warning-400 hover:text-warning-300 text-xs font-medium flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
                   轮换密钥
@@ -407,11 +448,12 @@ export default function KeysPermissions() {
                 type="text"
                 value={newIp}
                 onChange={(e) => setNewIp(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && addIp()}
+                onKeyDown={(e) => e.key === "Enter" && !isArchived && addIp()}
                 placeholder="输入 IP 地址或 IP 段"
                 className="input flex-1 text-sm"
+                disabled={isArchived}
               />
-              <button onClick={addIp} className="btn-secondary btn-sm gap-1">
+              <button onClick={addIp} className="btn-secondary btn-sm gap-1" disabled={isArchived}>
                 <Plus className="w-4 h-4" />
                 添加
               </button>
@@ -421,12 +463,13 @@ export default function KeysPermissions() {
               {whitelist.map((ip) => (
                 <div
                   key={ip}
-                  className="flex items-center justify-between bg-dark-950 px-4 py-2.5 rounded-lg border border-dark-800"
+                  className={`flex items-center justify-between bg-dark-950 px-4 py-2.5 rounded-lg border ${isArchived ? "border-dark-700 opacity-60" : "border-dark-800"}`}
                 >
                   <code className="font-mono text-sm text-dark-200">{ip}</code>
                   <button
                     onClick={() => removeIp(ip)}
-                    className="p-1.5 rounded hover:bg-dark-800 text-dark-500 hover:text-warning-400 transition-colors"
+                    disabled={isArchived}
+                    className="p-1.5 rounded hover:bg-dark-800 text-dark-500 hover:text-warning-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
@@ -464,6 +507,7 @@ export default function KeysPermissions() {
                 className="input"
                 value={alertThreshold}
                 onChange={(e) => setAlertThreshold(Number(e.target.value))}
+                disabled={isArchived}
               >
                 <option value="50">50% - 使用率达到 50% 时提醒</option>
                 <option value="70">70% - 使用率达到 70% 时提醒</option>
@@ -479,6 +523,7 @@ export default function KeysPermissions() {
                     type="checkbox"
                     checked={alertNotifySite}
                     onChange={(e) => setAlertNotifySite(e.target.checked)}
+                    disabled={isArchived}
                     className="w-4 h-4 rounded border-dark-600 bg-dark-800 text-primary-500 focus:ring-primary-500"
                   />
                   <span className="text-sm text-dark-300">站内消息通知</span>
@@ -488,6 +533,7 @@ export default function KeysPermissions() {
                     type="checkbox"
                     checked={alertNotifyEmail}
                     onChange={(e) => setAlertNotifyEmail(e.target.checked)}
+                    disabled={isArchived}
                     className="w-4 h-4 rounded border-dark-600 bg-dark-800 text-primary-500 focus:ring-primary-500"
                   />
                   <span className="text-sm text-dark-300">邮件通知</span>
@@ -497,6 +543,7 @@ export default function KeysPermissions() {
                     type="checkbox"
                     checked={alertNotifySms}
                     onChange={(e) => setAlertNotifySms(e.target.checked)}
+                    disabled={isArchived}
                     className="w-4 h-4 rounded border-dark-600 bg-dark-800 text-primary-500 focus:ring-primary-500"
                   />
                   <span className="text-sm text-dark-300">短信通知</span>
@@ -506,6 +553,7 @@ export default function KeysPermissions() {
             <button
               onClick={handleSaveQuotaAlert}
               className="btn-primary w-full mt-2"
+              disabled={isArchived}
             >
               保存设置
             </button>
@@ -530,6 +578,7 @@ export default function KeysPermissions() {
           <button
             onClick={() => setShowPermissionModal(true)}
             className="btn-outline btn-sm gap-2"
+            disabled={isArchived}
           >
             <Plus className="w-4 h-4" />
             申请权限
@@ -562,11 +611,20 @@ export default function KeysPermissions() {
             </thead>
             <tbody className="divide-y divide-dark-800">
               {filteredPermissions.map((perm) => (
-                <tr key={perm.id} className="hover:bg-dark-900/50">
+                <tr key={perm.id} className={`hover:bg-dark-900/50 ${isArchived ? "opacity-60" : ""}`}>
                   <td className="px-6 py-4">
                     <p className="font-medium text-white">{perm.apiName}</p>
                   </td>
-                  <td className="px-6 py-4">{getPermissionStatus(perm.status)}</td>
+                  <td className="px-6 py-4">
+                    <div>
+                      {isArchived ? <span className="badge badge-default">已归档</span> : getPermissionStatus(perm.status)}
+                    </div>
+                    {!isArchived && perm.status === "rejected" && perm.rejectReason && (
+                      <p className="text-xs text-red-400 mt-1">
+                        拒绝原因：{perm.rejectReason}
+                      </p>
+                    )}
+                  </td>
                   <td className="px-6 py-4">
                     <span className="text-dark-200">
                       {perm.quota > 0 ? `${perm.quota.toLocaleString()} 次/天` : "—"}
@@ -601,7 +659,10 @@ export default function KeysPermissions() {
                     </span>
                   </td>
                   <td className="px-6 py-4">
-                    <button className="text-primary-400 hover:text-primary-300 text-sm font-medium">
+                    <button
+                      className="text-primary-400 hover:text-primary-300 text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed"
+                      disabled={isArchived}
+                    >
                       详情
                     </button>
                   </td>

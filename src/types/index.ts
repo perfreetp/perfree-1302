@@ -70,6 +70,8 @@ export interface Permission {
   usedQuota: number;
   expiresAt: string;
   appliedAt: string;
+  rejectReason?: string;
+  approvedAt?: string;
 }
 
 export interface TicketReply {
@@ -137,4 +139,15 @@ export interface ApiCategory {
   icon: string;
   description: string;
   apiCount: number;
+}
+
+export interface OperationLog {
+  id: string;
+  targetId: string;
+  targetType: "application" | "permission" | "partner" | "key";
+  action: "create" | "delete" | "toggle_status" | "approve" | "reject" | "extend" | "rotate" | "restore";
+  operator: string;
+  detail: string;
+  impact: string;
+  createdAt: string;
 }
