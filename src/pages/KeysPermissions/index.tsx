@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   Key,
   Copy,
@@ -35,10 +35,22 @@ export default function KeysPermissions() {
     addPermission,
   } = useDataStore();
 
+  const activeApplications = useMemo(
+    () => applications.filter((a) => a.status !== "deleted"),
+    [applications]
+  );
+
   const [showSecret, setShowSecret] = useState<Record<string, boolean>>({});
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [newIp, setNewIp] = useState("");
-  const [selectedApp, setSelectedApp] = useState(applications[0]);
+  const [selectedApp, setSelectedApp] = useState(activeApplications[0]);
+
+  useEffect(() => {
+    const current = applications.find((a) => a.id === selectedApp?.id);
+    if (!current || current.status === "deleted") {
+      setSelectedApp(activeApplications[0]);
+    }
+  }, [applications, activeApplications, selectedApp?.id]);
 
   const [rotateKeyId, setRotateKeyId] = useState<string | null>(null);
   const [showRotateConfirm, setShowRotateConfirm] = useState(false);
@@ -153,6 +165,28 @@ export default function KeysPermissions() {
     }
   };
 
+  if (!selectedApp) {
+    return (
+      <div className="space-y-6 animate-fade-in">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-white">密钥与权限</h1>
+            <p className="text-dark-400 mt-1">
+              管理您的 API 密钥、白名单和接口权限
+            </p>
+          </div>
+        </div>
+        <div className="card">
+          <div className="text-center py-16 text-dark-500">
+            <AlertTriangle className="w-16 h-16 mx-auto mb-4 opacity-50" />
+            <p className="text-lg font-medium mb-2">暂无可使用的应用</p>
+            <p className="text-sm">所有应用均已被删除，请先创建新应用</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
@@ -171,14 +205,14 @@ export default function KeysPermissions() {
             申请权限
           </button>
           <select
-            value={selectedApp.id}
+            value={selectedApp?.id || ""}
             onChange={(e) => {
-              const app = applications.find((a) => a.id === e.target.value);
+              const app = activeApplications.find((a) => a.id === e.target.value);
               if (app) setSelectedApp(app);
             }}
             className="input w-56"
           >
-            {applications.map((app) => (
+            {activeApplications.map((app) => (
               <option key={app.id} value={app.id}>
                 {app.name}
               </option>

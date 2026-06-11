@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   TrendingUp,
   TrendingDown,
@@ -26,9 +26,16 @@ import {
   Bar,
   Legend,
 } from "recharts";
-import { callStats, callLogs, applications } from "@/mock";
+import { callStats, callLogs } from "@/mock";
+import { useDataStore } from "@/store/dataStore";
 
 export default function Monitor() {
+  const { applications } = useDataStore();
+  const activeApplications = useMemo(
+    () => applications.filter((a) => a.status !== "deleted"),
+    [applications]
+  );
+
   const [timeRange, setTimeRange] = useState("7d");
   const [selectedApp, setSelectedApp] = useState("all");
 
@@ -100,7 +107,7 @@ export default function Monitor() {
               className="input w-48 py-2 text-sm"
             >
               <option value="all">全部应用</option>
-              {applications.map((app) => (
+              {activeApplications.map((app) => (
                 <option key={app.id} value={app.id}>
                   {app.name}
                 </option>

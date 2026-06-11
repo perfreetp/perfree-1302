@@ -60,6 +60,7 @@ export const applications: Application[] = [
   {
     id: "1",
     name: "电商合作伙伴系统",
+    organization: "上海电商科技有限公司",
     description: "电商平台合作伙伴对接系统，用于订单同步和库存管理",
     status: "active",
     appKey: "AK20240612001",
@@ -72,6 +73,7 @@ export const applications: Application[] = [
   {
     id: "2",
     name: "金融风控应用",
+    organization: "深圳金融服务集团",
     description: "金融风控系统对接，用于用户信用评估和风险控制",
     status: "active",
     appKey: "AK20240612002",
@@ -84,6 +86,7 @@ export const applications: Application[] = [
   {
     id: "3",
     name: "物流追踪系统",
+    organization: "北京物流科技有限公司",
     description: "第三方物流合作伙伴系统，用于物流信息查询和推送",
     status: "pending",
     appKey: "AK20240612003",
@@ -96,6 +99,7 @@ export const applications: Application[] = [
   {
     id: "4",
     name: "CRM客户管理",
+    organization: "广州数字营销公司",
     description: "客户关系管理系统，用于客户数据同步和营销触达",
     status: "inactive",
     appKey: "AK20240612004",

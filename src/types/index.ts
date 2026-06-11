@@ -1,8 +1,9 @@
 export interface Application {
   id: string;
   name: string;
+  organization: string;
   description: string;
-  status: "active" | "inactive" | "pending";
+  status: "active" | "inactive" | "pending" | "deleted";
   appKey: string;
   appSecret: string;
   createdAt: string;

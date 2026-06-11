@@ -19,12 +19,14 @@ import {
 } from "lucide-react";
 import { apis } from "@/mock";
 import type { Api } from "@/types";
+import { useDataStore } from "@/store/dataStore";
 
 type TabType = "overview" | "params" | "response" | "errors" | "versions";
 
 export default function ApiDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { applications, addPermission } = useDataStore();
   const [activeTab, setActiveTab] = useState<TabType>("overview");
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [showApplyModal, setShowApplyModal] = useState(false);
@@ -83,11 +85,24 @@ export default function ApiDetail() {
   ];
 
   const handleApplyPermission = () => {
+    if (!applyAppId) {
+      alert("请先选择应用");
+      return;
+    }
+    const app = applications.find((a) => a.id === applyAppId);
+    addPermission({
+      apiId: api.id,
+      apiName: api.name,
+      appId: app!.id,
+      appName: app!.name,
+      quota: parseInt(applyQuota, 10),
+      expiresAt: "",
+    });
     setShowApplyModal(false);
     setApplyAppId("");
     setApplyQuota("10000");
     setApplyReason("");
-    alert("权限申请已提交，请等待管理员审批！");
+    alert("权限申请已提交！请在密钥与权限页查看审批状态。");
   };
 
   return (
@@ -572,15 +587,13 @@ export default function ApiDetail() {
                   className="input"
                 >
                   <option value="">请选择应用</option>
-                  {apis.length > 0 && [
-                    { id: "1", name: "电商合作伙伴系统" },
-                    { id: "2", name: "金融风控应用" },
-                    { id: "3", name: "物流追踪系统" },
-                  ].map((app) => (
-                    <option key={app.id} value={app.id}>
-                      {app.name}
-                    </option>
-                  ))}
+                  {applications
+                    .filter((app) => app.status !== "deleted")
+                    .map((app) => (
+                      <option key={app.id} value={app.id}>
+                        {app.name}
+                      </option>
+                    ))}
                 </select>
               </div>
               <div>

@@ -76,6 +76,8 @@ interface DataState {
 
   addApplication: (app: Omit<Application, "id" | "appKey" | "appSecret" | "createdAt">) => void;
   updateApplication: (id: string, updates: Partial<Application>) => void;
+  deleteApplication: (id: string) => void;
+  toggleApplicationStatus: (id: string) => void;
 
   addPermission: (p: Omit<Permission, "id" | "appliedAt" | "status" | "usedQuota">) => void;
   approvePermission: (id: string, quota: number, expiresAt: string) => void;
@@ -172,6 +174,26 @@ export const useDataStore = create<DataState>()(
           applications: s.applications.map((a) =>
             a.id === id ? { ...a, ...updates } : a
           ),
+        }));
+      },
+
+      deleteApplication: (id) => {
+        set((s) => ({
+          applications: s.applications.map((a) =>
+            a.id === id ? { ...a, status: "deleted" as const } : a
+          ),
+        }));
+      },
+
+      toggleApplicationStatus: (id) => {
+        set((s) => ({
+          applications: s.applications.map((a) => {
+            if (a.id !== id) return a;
+            return {
+              ...a,
+              status: a.status === "active" ? "inactive" : ("active" as const),
+            };
+          }),
         }));
       },
 

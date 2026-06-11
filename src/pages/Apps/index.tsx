@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Plus,
   Search,
@@ -14,6 +15,8 @@ import {
   Clock,
   Layers,
   X,
+  PlayCircle,
+  PauseCircle,
 } from "lucide-react";
 import { useDataStore } from "@/store/dataStore";
 import type { Application } from "@/types";
@@ -40,11 +43,16 @@ const categoryOptions = [
 ];
 
 export default function Apps() {
-  const { applications, addApplication } = useDataStore();
+  const navigate = useNavigate();
+  const { applications, addApplication, deleteApplication, toggleApplicationStatus } = useDataStore();
   const [searchText, setSearchText] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<{ type: "delete" | "toggle" | null; appId: string | null }>({
+    type: null,
+    appId: null,
+  });
   const [formData, setFormData] = useState<FormData>({
     name: "",
     organization: "",
@@ -60,7 +68,8 @@ export default function Apps() {
       app.description.toLowerCase().includes(searchText.toLowerCase());
     const matchesStatus =
       filterStatus === "all" || app.status === filterStatus;
-    return matchesSearch && matchesStatus;
+    const notDeleted = app.status !== "deleted";
+    return matchesSearch && matchesStatus && notDeleted;
   });
 
   const copyToClipboard = (text: string, id: string) => {
@@ -132,6 +141,7 @@ export default function Apps() {
     }
     addApplication({
       name: formData.name.trim(),
+      organization: formData.organization.trim(),
       description: formData.description.trim() || "暂无描述",
       status: "pending",
       environment: formData.environment,
@@ -152,6 +162,21 @@ export default function Apps() {
       });
     }
   };
+
+  const handleConfirmAction = () => {
+    if (!confirmAction.type || !confirmAction.appId) return;
+    const appId = confirmAction.appId;
+    if (confirmAction.type === "delete") {
+      deleteApplication(appId);
+      alert("应用已删除");
+    } else if (confirmAction.type === "toggle") {
+      toggleApplicationStatus(appId);
+      alert("状态已更新");
+    }
+    setConfirmAction({ type: null, appId: null });
+  };
+
+  const targetApp = confirmAction.appId ? applications.find((a) => a.id === confirmAction.appId) : null;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -219,7 +244,10 @@ export default function Apps() {
           >
             <div className="p-6">
               <div className="flex items-start justify-between mb-4">
-                <div className="flex items-center gap-4">
+                <div
+                  className="flex items-center gap-4 cursor-pointer"
+                  onClick={() => navigate(`/apps/${app.id}`)}
+                >
                   <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center">
                     <AppWindow className="w-7 h-7 text-white" />
                   </div>
@@ -230,6 +258,9 @@ export default function Apps() {
                     <p className="text-sm text-dark-400 mt-0.5">
                       {app.category}
                     </p>
+                    <p className="text-xs text-dark-500 mt-0.5">
+                      {app.organization || "-"}
+                    </p>
                   </div>
                 </div>
                 <div className="relative group">
@@ -237,15 +268,33 @@ export default function Apps() {
                     <MoreHorizontal className="w-5 h-5" />
                   </button>
                   <div className="absolute right-0 top-full mt-1 w-36 bg-dark-800 rounded-lg border border-dark-700 shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10">
-                    <button className="w-full px-3 py-2 text-left text-sm text-dark-200 hover:bg-dark-700 flex items-center gap-2 rounded-t-lg">
+                    <button
+                      onClick={() => navigate(`/apps/${app.id}`)}
+                      className="w-full px-3 py-2 text-left text-sm text-dark-200 hover:bg-dark-700 flex items-center gap-2 rounded-t-lg"
+                    >
                       <Eye className="w-4 h-4" />
                       查看详情
                     </button>
-                    <button className="w-full px-3 py-2 text-left text-sm text-dark-200 hover:bg-dark-700 flex items-center gap-2">
-                      <Settings className="w-4 h-4" />
-                      应用设置
+                    <button
+                      onClick={() => setConfirmAction({ type: "toggle", appId: app.id })}
+                      className="w-full px-3 py-2 text-left text-sm text-dark-200 hover:bg-dark-700 flex items-center gap-2"
+                    >
+                      {app.status === "active" ? (
+                        <>
+                          <PauseCircle className="w-4 h-4" />
+                          停用应用
+                        </>
+                      ) : (
+                        <>
+                          <PlayCircle className="w-4 h-4" />
+                          恢复应用
+                        </>
+                      )}
                     </button>
-                    <button className="w-full px-3 py-2 text-left text-sm text-warning-400 hover:bg-dark-700 flex items-center gap-2 rounded-b-lg">
+                    <button
+                      onClick={() => setConfirmAction({ type: "delete", appId: app.id })}
+                      className="w-full px-3 py-2 text-left text-sm text-warning-400 hover:bg-dark-700 flex items-center gap-2 rounded-b-lg"
+                    >
                       <Trash2 className="w-4 h-4" />
                       删除应用
                     </button>
@@ -307,7 +356,7 @@ export default function Apps() {
                   </button>
                 </div>
                 <p className="font-mono text-sm text-dark-300 truncate">
-                  {'•'.repeat(app.appSecret.length)}
+                  {"•".repeat(app.appSecret.length)}
                 </p>
               </div>
             </div>
@@ -323,7 +372,12 @@ export default function Apps() {
                   3 个接口权限
                 </span>
               </div>
-              <button className="btn-secondary btn-sm">查看详情</button>
+              <button
+                onClick={() => navigate(`/apps/${app.id}`)}
+                className="btn-secondary btn-sm"
+              >
+                查看详情
+              </button>
             </div>
           </div>
         ))}
@@ -459,6 +513,52 @@ export default function Apps() {
                 className="btn-primary"
               >
                 提交
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm Action Modal */}
+      {confirmAction.type && targetApp && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
+          <div className="bg-dark-900 rounded-2xl border border-dark-700 w-full max-w-md p-6 animate-slide-up">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold text-white">
+                {confirmAction.type === "delete" ? "删除确认" : "状态变更确认"}
+              </h3>
+              <button
+                onClick={() => setConfirmAction({ type: null, appId: null })}
+                className="p-2 rounded-lg hover:bg-dark-800 text-dark-400 hover:text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            {confirmAction.type === "delete" ? (
+              <p className="text-sm text-red-400 mb-6">
+                确定要删除这个应用吗？已删除的应用将无法恢复，所有关联密钥将立即失效。
+              </p>
+            ) : targetApp.status === "active" ? (
+              <p className="text-sm text-dark-300 mb-6">
+                确定要停用这个应用吗？停用后所有接口调用将被拒绝。
+              </p>
+            ) : (
+              <p className="text-sm text-dark-300 mb-6">
+                确定要恢复这个应用吗？恢复后将继续接受接口调用。
+              </p>
+            )}
+            <div className="flex items-center justify-end gap-3">
+              <button
+                onClick={() => setConfirmAction({ type: null, appId: null })}
+                className="btn-secondary"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleConfirmAction}
+                className={confirmAction.type === "delete" ? "btn-danger" : "btn-primary"}
+              >
+                确认
               </button>
             </div>
           </div>

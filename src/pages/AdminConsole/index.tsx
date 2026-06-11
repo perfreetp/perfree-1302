@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   Shield,
   Users,
@@ -36,7 +37,20 @@ import { useDataStore, exportToCSV } from "@/store/dataStore";
 type AdminTab = "dashboard" | "audit" | "apis" | "permissions" | "monitor" | "reports";
 
 export default function AdminConsole() {
-  const [activeTab, setActiveTab] = useState<AdminTab>("dashboard");
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  const activeTab = useMemo<AdminTab>(() => {
+    const path = location.pathname;
+    if (path === "/admin" || path === "/admin/dashboard") return "dashboard";
+    if (path === "/admin/audit") return "audit";
+    if (path === "/admin/apis") return "apis";
+    if (path === "/admin/permissions") return "permissions";
+    if (path === "/admin/monitor") return "monitor";
+    if (path === "/admin/reports") return "reports";
+    return "dashboard";
+  }, [location.pathname]);
+
   const [searchText, setSearchText] = useState("");
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const [extendModalOpen, setExtendModalOpen] = useState(false);
@@ -232,7 +246,7 @@ export default function AdminConsole() {
           return (
             <button
               key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
+              onClick={() => navigate(`/admin/${tab.key === 'dashboard' ? '' : tab.key}`)}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
                 activeTab === tab.key
                   ? "bg-primary-500/20 text-primary-400 shadow-sm"
