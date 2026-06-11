@@ -13,14 +13,17 @@ import {
   XCircle,
   ChevronDown,
   Filter,
+  CheckCheck,
 } from "lucide-react";
 import { useDataStore } from "@/store/dataStore";
+import { useNavigate } from "react-router-dom";
 
 type TabType = "messages" | "tickets";
 type TicketType = "question" | "bug" | "feature" | "other";
 
 export default function Tickets() {
-  const { tickets, messages, addTicket, addTicketReply } = useDataStore();
+  const { tickets, messages, addTicket, addTicketReply, markMessageRead, markAllMessagesRead } = useDataStore();
+  const navigate = useNavigate();
 
   const [activeTab, setActiveTab] = useState<TabType>("tickets");
   const [selectedTicket, setSelectedTicket] = useState(tickets[0]);
@@ -464,7 +467,11 @@ export default function Tickets() {
         <div className="card">
           <div className="p-4 border-b border-dark-800 flex items-center justify-between">
             <h3 className="font-semibold text-white">全部消息</h3>
-            <button className="text-sm text-primary-400 hover:text-primary-300">
+            <button
+              onClick={() => markAllMessagesRead()}
+              className="text-sm text-primary-400 hover:text-primary-300 flex items-center gap-1.5 transition-colors"
+            >
+              <CheckCheck className="w-4 h-4" />
               全部标为已读
             </button>
           </div>
@@ -475,6 +482,12 @@ export default function Tickets() {
                 className={`p-5 hover:bg-dark-800/50 cursor-pointer transition-colors ${
                   !msg.read ? "bg-primary-500/5" : ""
                 }`}
+                onClick={() => {
+                  if (msg.link) {
+                    navigate(msg.link);
+                  }
+                  markMessageRead(msg.id);
+                }}
               >
                 <div className="flex items-start gap-4">
                   <div className="w-10 h-10 rounded-lg bg-dark-800 flex items-center justify-center flex-shrink-0">

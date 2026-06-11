@@ -8,6 +8,7 @@ import type {
   Message,
   Partner,
   OperationLog,
+  ApprovalRecord,
 } from "@/types";
 import {
   applications as mockApplications,
@@ -132,7 +133,8 @@ const addMsg = (
   set: (fn: (s: DataState) => Partial<DataState>) => void,
   title: string,
   content: string,
-  type: Message["type"] = "approval"
+  type: Message["type"] = "approval",
+  link?: string
 ) => {
   const msg: Message = {
     id: generateId(),
@@ -141,8 +143,17 @@ const addMsg = (
     type,
     read: false,
     createdAt: nowStr(),
+    ...(link ? { link } : {}),
   };
   set((s) => ({ messages: [msg, ...s.messages] }));
+};
+
+const pushHistory = (perm: Permission, record: ApprovalRecord): Permission => {
+  const history = perm.approvalHistory ?? [];
+  return {
+    ...perm,
+    approvalHistory: [...history, record],
+  };
 };
 
 export const useDataStore = create<DataState>()(
@@ -266,82 +277,178 @@ export const useDataStore = create<DataState>()(
           appliedAt: new Date().toISOString().split("T")[0],
           status: "pending",
           usedQuota: 0,
+          approvalHistory: [
+            {
+              id: generateId(),
+              action: "apply",
+              operator: "我",
+              operatorType: "user",
+              detail: "提交接口权限申请",
+              quota: p.quota,
+              createdAt: nowStr(),
+            },
+          ],
         };
         set((s) => ({ permissions: [...s.permissions, newPerm] }));
       },
 
       approvePermission: (id, quota, expiresAt) => {
         const perm = get().permissions.find((p) => p.id === id);
+        const now = nowStr();
         set((s) => ({
           permissions: s.permissions.map((p) =>
             p.id === id
-              ? { ...p, status: "approved", quota, expiresAt, approvedAt: nowStr() }
+              ? pushHistory(
+                  { ...p, status: "approved", quota, expiresAt, approvedAt: now },
+                  {
+                    id: generateId(),
+                    action: "approve",
+                    operator: "管理员",
+                    operatorType: "admin",
+                    detail: "审批通过",
+                    quota,
+                    expiresAt,
+                    createdAt: now,
+                  }
+                )
               : p
           ),
         }));
         if (perm) {
-          addMsg(set, "权限申请已通过", `您申请的「${perm.apiName}」接口权限已通过审批，额度 ${quota.toLocaleString()} 次/天，有效期至 ${expiresAt}`);
+          addMsg(
+            set,
+            "权限申请已通过",
+            `您申请的「${perm.apiName}」接口权限已通过审批，额度 ${quota.toLocaleString()} 次/天，有效期至 ${expiresAt}`,
+            "approval",
+            `/apps/${perm.appId}`
+          );
           addLog(set, id, "permission", "approve", `通过「${perm.appName}」的「${perm.apiName}」权限申请`, `额度 ${quota.toLocaleString()} 次/天，有效期至 ${expiresAt}`);
         }
       },
 
       rejectPermission: (id, reason) => {
         const perm = get().permissions.find((p) => p.id === id);
+        const now = nowStr();
         set((s) => ({
           permissions: s.permissions.map((p) =>
-            p.id === id ? { ...p, status: "rejected", rejectReason: reason, approvedAt: nowStr() } : p
+            p.id === id
+              ? pushHistory(
+                  { ...p, status: "rejected", rejectReason: reason, approvedAt: now },
+                  {
+                    id: generateId(),
+                    action: "reject",
+                    operator: "管理员",
+                    operatorType: "admin",
+                    detail: "审批拒绝",
+                    reason,
+                    createdAt: now,
+                  }
+                )
+              : p
           ),
         }));
         if (perm) {
-          addMsg(set, "权限申请已拒绝", `您申请的「${perm.apiName}」接口权限未通过审批，原因：${reason || "无"}`);
+          addMsg(
+            set,
+            "权限申请已拒绝",
+            `您申请的「${perm.apiName}」接口权限未通过审批，原因：${reason || "无"}`,
+            "approval",
+            `/apps/${perm.appId}`
+          );
           addLog(set, id, "permission", "reject", `拒绝「${perm.appName}」的「${perm.apiName}」权限申请`, reason ? `拒绝原因：${reason}` : "未填写拒绝原因");
         }
       },
 
       extendPermission: (id, expiresAt, quota) => {
+        const perm = get().permissions.find((p) => p.id === id);
+        const now = nowStr();
         set((s) => ({
           permissions: s.permissions.map((p) =>
             p.id === id
-              ? { ...p, expiresAt, ...(quota !== undefined ? { quota } : {}) }
+              ? pushHistory(
+                  { ...p, expiresAt, ...(quota !== undefined ? { quota } : {}) },
+                  {
+                    id: generateId(),
+                    action: "extend",
+                    operator: "管理员",
+                    operatorType: "admin",
+                    detail: "权限延期",
+                    expiresAt,
+                    quota,
+                    createdAt: now,
+                  }
+                )
               : p
           ),
         }));
-        const perm = get().permissions.find((p) => p.id === id);
         if (perm) {
           addLog(set, id, "permission", "extend", `延期「${perm.apiName}」权限至 ${expiresAt}`, quota ? `新额度：${quota.toLocaleString()} 次/天` : "额度不变");
         }
       },
 
       batchApprovePermissions: (ids, quota, expiresAt) => {
+        const now = nowStr();
+        const perms = get().permissions.filter((p) => ids.includes(p.id));
         set((s) => ({
           permissions: s.permissions.map((p) =>
             ids.includes(p.id)
-              ? { ...p, status: "approved", quota, expiresAt, approvedAt: nowStr() }
+              ? pushHistory(
+                  { ...p, status: "approved", quota, expiresAt, approvedAt: now },
+                  {
+                    id: generateId(),
+                    action: "approve",
+                    operator: "管理员",
+                    operatorType: "admin",
+                    detail: "批量审批通过",
+                    quota,
+                    expiresAt,
+                    createdAt: now,
+                  }
+                )
               : p
           ),
         }));
-        ids.forEach((pid) => {
-          const perm = get().permissions.find((p) => p.id === pid);
-          if (perm) {
-            addMsg(set, "权限申请已通过", `您申请的「${perm.apiName}」接口权限已通过审批`);
-          }
+        perms.forEach((perm) => {
+          addMsg(
+            set,
+            "权限申请已通过",
+            `您申请的「${perm.apiName}」接口权限已通过审批`,
+            "approval",
+            `/apps/${perm.appId}`
+          );
         });
         addLog(set, ids.join(","), "permission", "approve", `批量通过 ${ids.length} 条权限申请`, `统一额度 ${quota.toLocaleString()} 次/天，有效期至 ${expiresAt}`);
       },
 
       batchRejectPermissions: (ids, reason) => {
+        const now = nowStr();
+        const perms = get().permissions.filter((p) => ids.includes(p.id));
         set((s) => ({
           permissions: s.permissions.map((p) =>
             ids.includes(p.id)
-              ? { ...p, status: "rejected", rejectReason: reason, approvedAt: nowStr() }
+              ? pushHistory(
+                  { ...p, status: "rejected", rejectReason: reason, approvedAt: now },
+                  {
+                    id: generateId(),
+                    action: "reject",
+                    operator: "管理员",
+                    operatorType: "admin",
+                    detail: "批量审批拒绝",
+                    reason,
+                    createdAt: now,
+                  }
+                )
               : p
           ),
         }));
-        ids.forEach((pid) => {
-          const perm = get().permissions.find((p) => p.id === pid);
-          if (perm) {
-            addMsg(set, "权限申请已拒绝", `您申请的「${perm.apiName}」接口权限未通过审批${reason ? `，原因：${reason}` : ""}`);
-          }
+        perms.forEach((perm) => {
+          addMsg(
+            set,
+            "权限申请已拒绝",
+            `您申请的「${perm.apiName}」接口权限未通过审批${reason ? `，原因：${reason}` : ""}`,
+            "approval",
+            `/apps/${perm.appId}`
+          );
         });
         addLog(set, ids.join(","), "permission", "reject", `批量拒绝 ${ids.length} 条权限申请`, reason ? `拒绝原因：${reason}` : "");
       },

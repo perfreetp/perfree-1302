@@ -1,11 +1,12 @@
-import { Bell, User, ChevronDown, FlaskConical, Globe, Settings, LogOut, Shield, UserCircle } from "lucide-react";
+import { Bell, User, ChevronDown, FlaskConical, Globe, Settings, LogOut, Shield, UserCircle, CheckCheck } from "lucide-react";
 import { useAppStore } from "@/store/appStore";
 import { useState } from "react";
-import { messages } from "@/mock";
+import { useDataStore } from "@/store/dataStore";
 import { useNavigate } from "react-router-dom";
 
 export default function Header() {
   const { environment, isAdmin, toggleEnvironment, toggleAdmin } = useAppStore();
+  const { messages, markMessageRead, markAllMessagesRead } = useDataStore();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const navigate = useNavigate();
@@ -76,7 +77,12 @@ export default function Header() {
                       !msg.read ? "bg-primary-500/5" : ""
                     }`}
                     onClick={() => {
-                      navigate("/tickets");
+                      if (msg.link) {
+                        navigate(msg.link);
+                      } else {
+                        navigate("/tickets");
+                      }
+                      markMessageRead(msg.id);
                       setShowNotifications(false);
                     }}
                   >
@@ -101,7 +107,16 @@ export default function Header() {
                   </div>
                 ))}
               </div>
-              <div className="p-3 border-t border-dark-700">
+              <div className="p-3 border-t border-dark-700 space-y-2">
+                <button
+                  onClick={() => {
+                    markAllMessagesRead();
+                  }}
+                  className="w-full text-sm text-dark-300 hover:text-white hover:bg-dark-700/50 font-medium py-2 rounded-lg flex items-center justify-center gap-2 transition-colors"
+                >
+                  <CheckCheck className="w-4 h-4" />
+                  全部标记已读
+                </button>
                 <button
                   onClick={() => {
                     navigate("/tickets");

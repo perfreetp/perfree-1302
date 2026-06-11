@@ -19,6 +19,7 @@ import {
 import { apis } from "@/mock";
 import { useAppStore } from "@/store/appStore";
 import { useDataStore } from "@/store/dataStore";
+import type { ApprovalRecord } from "@/types";
 
 export default function KeysPermissions() {
   const { environment } = useAppStore();
@@ -76,6 +77,9 @@ export default function KeysPermissions() {
   const [showPermissionModal, setShowPermissionModal] = useState(false);
   const [permApiId, setPermApiId] = useState("");
   const [permQuota, setPermQuota] = useState(10000);
+  const [showApprovalTimeline, setShowApprovalTimeline] = useState(false);
+  const [selectedApprovalHistory, setSelectedApprovalHistory] = useState<ApprovalRecord[]>([]);
+  const [selectedApprovalApiName, setSelectedApprovalApiName] = useState("");
 
   const appKeys = useMemo(
     () => apiKeys.filter((k) => k.appId === selectedApp.id),
@@ -660,10 +664,16 @@ export default function KeysPermissions() {
                   </td>
                   <td className="px-6 py-4">
                     <button
-                      className="text-primary-400 hover:text-primary-300 text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed"
+                      onClick={() => {
+                        setSelectedApprovalHistory(perm.approvalHistory || []);
+                        setSelectedApprovalApiName(perm.apiName);
+                        setShowApprovalTimeline(true);
+                      }}
                       disabled={isArchived}
+                      className="p-2 rounded-lg hover:bg-dark-800 text-dark-400 hover:text-primary-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      title="审批详情"
                     >
-                      详情
+                      <Clock className="w-4 h-4" />
                     </button>
                   </td>
                 </tr>
@@ -805,6 +815,84 @@ export default function KeysPermissions() {
               >
                 提交申请
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showApprovalTimeline && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in p-4">
+          <div className="bg-dark-900 rounded-2xl border border-dark-800 shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col animate-slide-up">
+            <div className="flex items-center justify-between p-6 border-b border-dark-800 flex-shrink-0">
+              <div>
+                <h3 className="text-xl font-bold text-white">审批时间线</h3>
+                <p className="text-sm text-dark-400 mt-1">{selectedApprovalApiName}</p>
+              </div>
+              <button
+                onClick={() => setShowApprovalTimeline(false)}
+                className="p-2 rounded-lg hover:bg-dark-800 text-dark-400 hover:text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto flex-1">
+              {selectedApprovalHistory.length === 0 ? (
+                <div className="text-center py-16">
+                  <Clock className="w-12 h-12 text-dark-600 mx-auto mb-3" />
+                  <p className="text-dark-400">暂无审批记录</p>
+                </div>
+              ) : (
+                <div className="relative pl-8">
+                  <div className="absolute left-3 top-2 bottom-2 w-0.5 bg-dark-800" />
+                  {selectedApprovalHistory.map((record, index) => {
+                    const actionConfig: Record<string, { label: string; dotClass: string; badgeClass: string }> = {
+                      apply: { label: "提交申请", dotClass: "bg-primary-500", badgeClass: "bg-primary-500/20 text-primary-400 border-primary-500/30" },
+                      approve: { label: "审批通过", dotClass: "bg-green-500", badgeClass: "bg-green-500/20 text-green-400 border-green-500/30" },
+                      reject: { label: "审批拒绝", dotClass: "bg-red-500", badgeClass: "bg-red-500/20 text-red-400 border-red-500/30" },
+                      extend: { label: "权限延期", dotClass: "bg-warning-500", badgeClass: "bg-warning-500/20 text-warning-400 border-warning-500/30" },
+                      resubmit: { label: "重新提交", dotClass: "bg-primary-500", badgeClass: "bg-primary-500/20 text-primary-400 border-primary-500/30" },
+                    };
+                    const config = actionConfig[record.action] || { label: record.action, dotClass: "bg-dark-500", badgeClass: "bg-dark-500/20 text-dark-300 border-dark-500/30" };
+                    const isLast = index === selectedApprovalHistory.length - 1;
+                    return (
+                      <div key={record.id} className={`relative ${isLast ? "" : "pb-8"}`}>
+                        <div className={`absolute -left-1 top-2 w-8 h-8 rounded-full flex items-center justify-center ${config.dotClass} text-white shadow-lg`}>
+                          <div className="w-2.5 h-2.5 rounded-full bg-white/30" />
+                        </div>
+                        <div className="card p-5 ml-4">
+                          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                            <div className="flex items-center gap-3 flex-wrap">
+                              <span className={`px-2.5 py-1 text-xs font-medium rounded-lg border ${config.badgeClass}`}>
+                                {config.label}
+                              </span>
+                              <span className="text-sm text-dark-500">
+                                {record.operatorType === "admin" ? "管理员" : "我"}：{record.operator}
+                              </span>
+                            </div>
+                            <span className="text-sm text-dark-500">{record.createdAt}</span>
+                          </div>
+                          <p className="text-sm text-dark-300 mb-2">{record.detail}</p>
+                          {record.quota !== undefined && (
+                            <div className="text-xs text-dark-400 mb-1">
+                              额度：{record.quota.toLocaleString()}次/天
+                            </div>
+                          )}
+                          {record.expiresAt && (
+                            <div className="text-xs text-dark-400 mb-1">
+                              有效期至：{record.expiresAt}
+                            </div>
+                          )}
+                          {record.reason && (
+                            <div className="text-xs text-red-400 mt-2 bg-red-500/10 rounded-lg px-3 py-2">
+                              原因：{record.reason}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </div>

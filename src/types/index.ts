@@ -72,6 +72,19 @@ export interface Permission {
   appliedAt: string;
   rejectReason?: string;
   approvedAt?: string;
+  approvalHistory?: ApprovalRecord[];
+}
+
+export interface ApprovalRecord {
+  id: string;
+  action: "apply" | "approve" | "reject" | "extend" | "resubmit";
+  operator: string;
+  operatorType: "user" | "admin";
+  detail: string;
+  quota?: number;
+  expiresAt?: string;
+  reason?: string;
+  createdAt: string;
 }
 
 export interface TicketReply {
@@ -99,6 +112,7 @@ export interface Message {
   type: "system" | "approval" | "announcement";
   read: boolean;
   createdAt: string;
+  link?: string;
 }
 
 export interface Announcement {

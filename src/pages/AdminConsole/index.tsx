@@ -40,10 +40,32 @@ import { useDataStore, exportToCSV } from "@/store/dataStore";
 
 type AdminTab = "dashboard" | "audit" | "apis" | "permissions" | "monitor" | "reports";
 
+interface ProcessedResult {
+  appName: string;
+  apiName: string;
+  action: "通过" | "拒绝";
+  processor: string;
+  processedAt: string;
+  quota?: number;
+  expiresAt?: string;
+  reason?: string;
+}
+
 const defaultExpireDate = () => {
   const d = new Date();
   d.setDate(d.getDate() + 30);
   return d.toISOString().split("T")[0];
+};
+
+const formatNowDateTime = () => {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  const ss = String(d.getSeconds()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
 };
 
 const statusLabel = (s: string) =>
@@ -95,12 +117,15 @@ export default function AdminConsole() {
   const [batchRejectPartnerModal, setBatchRejectPartnerModal] = useState(false);
   const [batchRejectPartnerReason, setBatchRejectPartnerReason] = useState("");
 
-  const auditFilter = useState({ search: "", status: "all", dateFrom: "", dateTo: "" });
-  const permFilter = useState({ search: "", app: "all", status: "all", dateFrom: "", dateTo: "" });
+  const auditFilter = useState({ search: "", status: "all", organization: "all", dateFrom: "", dateTo: "" });
+  const permFilter = useState({ search: "", app: "all", organization: "all", status: "all", dateFrom: "", dateTo: "" });
   const reportFilter = useState({ partner: "all", dateFrom: "", dateTo: "" });
 
   const [selectedPartners, setSelectedPartners] = useState<Set<string>>(new Set());
   const [selectedPerms, setSelectedPerms] = useState<Set<string>>(new Set());
+
+  const [processedResults, setProcessedResults] = useState<ProcessedResult[]>([]);
+  const [showProcessedPanel, setShowProcessedPanel] = useState(false);
 
   const {
     partners,
@@ -158,6 +183,7 @@ export default function AdminConsole() {
     const f = auditFilter[0];
     return partners.filter((p) => {
       if (f.search && !p.name.toLowerCase().includes(f.search.toLowerCase())) return false;
+      if (f.organization !== "all" && (p as any).organization !== f.organization) return false;
       if (f.status !== "all" && p.status !== f.status) return false;
       if (f.dateFrom && p.appliedAt < f.dateFrom) return false;
       if (f.dateTo && p.appliedAt > f.dateTo) return false;
@@ -165,17 +191,41 @@ export default function AdminConsole() {
     });
   }, [partners, auditFilter[0]]);
 
+  const orgOptionsFromApps = useMemo(() => {
+    const orgs = new Set<string>();
+    applications
+      .filter((a) => !(a as any).deleted)
+      .forEach((a) => {
+        if (a.organization) orgs.add(a.organization);
+      });
+    return Array.from(orgs).sort();
+  }, [applications]);
+
+  const orgOptionsFromPartners = useMemo(() => {
+    const orgs = new Set<string>();
+    partners.forEach((p) => {
+      if ((p as any).organization) orgs.add((p as any).organization);
+    });
+    return Array.from(orgs).sort();
+  }, [partners]);
+
   const filteredPermissions = useMemo(() => {
     const f = permFilter[0];
     return permissions.filter((p) => {
       if (f.search && !p.apiName.toLowerCase().includes(f.search.toLowerCase()) && !p.appName.toLowerCase().includes(f.search.toLowerCase())) return false;
       if (f.app !== "all" && p.appId !== f.app) return false;
+      if (f.organization !== "all") {
+        const appIdsOfOrg = applications
+          .filter((a) => a.organization === f.organization && !(a as any).deleted)
+          .map((a) => a.id);
+        if (!appIdsOfOrg.includes(p.appId)) return false;
+      }
       if (f.status !== "all" && p.status !== f.status) return false;
       if (f.dateFrom && p.appliedAt < f.dateFrom) return false;
       if (f.dateTo && p.appliedAt > f.dateTo) return false;
       return true;
     });
-  }, [permissions, permFilter[0]]);
+  }, [permissions, permFilter[0], applications]);
 
   const togglePartnerSelect = (id: string) => {
     setSelectedPartners((prev) => {
@@ -273,16 +323,43 @@ export default function AdminConsole() {
   const handleBatchApprovePerms = (quota: number, expiresAt: string) => {
     const ids = Array.from(selectedPerms);
     if (ids.length === 0) return;
+    const now = formatNowDateTime();
+    const results: ProcessedResult[] = permissions
+      .filter((p) => ids.includes(p.id))
+      .map((p) => ({
+        appName: p.appName,
+        apiName: p.apiName,
+        action: "通过",
+        processor: "管理员",
+        processedAt: now,
+        quota,
+        expiresAt,
+      }));
     batchApprovePermissions(ids, quota, expiresAt);
     setSelectedPerms(new Set());
+    setProcessedResults(results);
+    setShowProcessedPanel(true);
     showToast(`已批量通过 ${ids.length} 条权限申请`);
   };
 
   const handleBatchRejectPerms = (reason: string) => {
     const ids = Array.from(selectedPerms);
     if (ids.length === 0) return;
+    const now = formatNowDateTime();
+    const results: ProcessedResult[] = permissions
+      .filter((p) => ids.includes(p.id))
+      .map((p) => ({
+        appName: p.appName,
+        apiName: p.apiName,
+        action: "拒绝",
+        processor: "管理员",
+        processedAt: now,
+        reason,
+      }));
     batchRejectPermissions(ids, reason);
     setSelectedPerms(new Set());
+    setProcessedResults(results);
+    setShowProcessedPanel(true);
     showToast(`已批量拒绝 ${ids.length} 条权限申请`);
   };
 
@@ -305,14 +382,38 @@ export default function AdminConsole() {
       接口名称: p.apiName,
       应用: p.appName,
       状态: statusLabel(p.status),
+      处理人: p.status !== "pending" ? "管理员" : "",
+      处理时间: p.approvedAt || "",
       额度: p.quota > 0 ? `${p.quota.toLocaleString()} 次/天` : "—",
       有效期: p.expiresAt || "—",
+      拒绝原因: (p as any).rejectReason || "",
       申请时间: p.appliedAt,
-      处理时间: p.approvedAt || "",
     }));
     const now = new Date();
     exportToCSV(data, `权限审批结果_${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}.csv`);
     showToast("审批结果导出成功");
+  };
+
+  const handleExportProcessedResults = () => {
+    if (processedResults.length === 0) return;
+    const data = processedResults.map((r) => ({
+      应用名: r.appName,
+      接口名: r.apiName,
+      处理动作: r.action,
+      处理人: r.processor,
+      处理时间: r.processedAt,
+      "额度(次/天)": r.quota !== undefined ? r.quota.toLocaleString() : "",
+      有效期: r.expiresAt || "",
+      原因: r.reason || "",
+    }));
+    const now = new Date();
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, "0");
+    const dd = String(now.getDate()).padStart(2, "0");
+    const hh = String(now.getHours()).padStart(2, "0");
+    const mi = String(now.getMinutes()).padStart(2, "0");
+    exportToCSV(data, `批量处理结果_${yyyy}${mm}${dd}_${hh}${mi}.csv`);
+    showToast("批量处理结果导出成功");
   };
 
   const handleExportReport = () => {
@@ -654,6 +755,70 @@ export default function AdminConsole() {
         })}
       </div>
 
+      {/* Processed Results Panel */}
+      {showProcessedPanel && processedResults.length > 0 && (
+        <div className="bg-dark-800 border border-dark-700 rounded-2xl p-6 animate-slide-up relative">
+          <div className="flex items-center justify-between mb-5">
+            <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+              <Check className="w-5 h-5 text-primary-400" />
+              本次处理结果
+            </h3>
+            <button
+              className="p-1.5 rounded-lg hover:bg-dark-700 text-dark-400 hover:text-white transition-colors"
+              onClick={() => setShowProcessedPanel(false)}
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="mb-4">
+            <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-500/10 border border-green-500/30 text-green-400 text-sm font-medium">
+              成功 {processedResults.length} 条
+            </span>
+          </div>
+          <div className="overflow-x-auto rounded-xl border border-dark-700 mb-5">
+            <table className="w-full">
+              <thead className="bg-dark-950">
+                <tr>
+                  <th className="text-left px-4 py-3 text-sm font-medium text-dark-400">应用名</th>
+                  <th className="text-left px-4 py-3 text-sm font-medium text-dark-400">接口名</th>
+                  <th className="text-left px-4 py-3 text-sm font-medium text-dark-400">处理动作</th>
+                  <th className="text-left px-4 py-3 text-sm font-medium text-dark-400">处理人</th>
+                  <th className="text-left px-4 py-3 text-sm font-medium text-dark-400">处理时间</th>
+                  <th className="text-left px-4 py-3 text-sm font-medium text-dark-400">额度</th>
+                  <th className="text-left px-4 py-3 text-sm font-medium text-dark-400">有效期</th>
+                  <th className="text-left px-4 py-3 text-sm font-medium text-dark-400">原因</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-dark-800">
+                {processedResults.map((r, idx) => (
+                <tr key={idx} className="hover:bg-dark-900/50">
+                  <td className="px-4 py-3"><span className="font-medium text-white text-sm">{r.appName}</span></td>
+                  <td className="px-4 py-3"><span className="text-dark-300 text-sm">{r.apiName}</span></td>
+                  <td className="px-4 py-3">
+                    {r.action === "通过" ? (
+                      <span className="badge-success badge">{r.action}</span>
+                    ) : (
+                      <span className="badge-error badge">{r.action}</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3"><span className="text-dark-300 text-sm">{r.processor}</span></td>
+                  <td className="px-4 py-3"><span className="text-dark-300 text-sm">{r.processedAt}</span></td>
+                  <td className="px-4 py-3"><span className="text-dark-300 text-sm">{r.quota !== undefined ? `${r.quota.toLocaleString()} 次/天` : "—"}</span></td>
+                  <td className="px-4 py-3"><span className="text-dark-300 text-sm">{r.expiresAt || "—"}</span></td>
+                  <td className="px-4 py-3"><span className="text-dark-300 text-sm">{r.reason || "—"}</span></td>
+                </tr>
+              ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex items-center justify-end">
+            <button className="btn-primary gap-2" onClick={handleExportProcessedResults}>
+              <Download className="w-4 h-4" />导出本次结果
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ==================== Dashboard ==================== */}
       {activeTab === "dashboard" && (
         <div className="space-y-6">
@@ -778,6 +943,16 @@ export default function AdminConsole() {
                 <option value="pending">待审核</option>
                 <option value="approved">已通过</option>
                 <option value="rejected">已拒绝</option>
+              </select>
+              <select
+                value={auditFilter[0].organization}
+                onChange={(e) => auditFilter[1]({ ...auditFilter[0], organization: e.target.value })}
+                className="input w-48 py-2 text-sm"
+              >
+                <option value="all">全部组织/企业</option>
+                {orgOptionsFromPartners.map((org) => (
+                  <option key={org} value={org}>{org}</option>
+                ))}
               </select>
               <div className="flex items-center gap-2">
                 <div className="relative">
@@ -988,6 +1163,16 @@ export default function AdminConsole() {
                 <option value="all">全部应用</option>
                 {applications.map((app) => (
                   <option key={app.id} value={app.id}>{app.name}</option>
+                ))}
+              </select>
+              <select
+                value={permFilter[0].organization}
+                onChange={(e) => permFilter[1]({ ...permFilter[0], organization: e.target.value })}
+                className="input w-48 py-2 text-sm"
+              >
+                <option value="all">全部组织/企业</option>
+                {orgOptionsFromApps.map((org) => (
+                  <option key={org} value={org}>{org}</option>
                 ))}
               </select>
               <select
