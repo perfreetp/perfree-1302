@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   MessageSquare,
   Bell,
@@ -14,18 +14,48 @@ import {
   ChevronDown,
   Filter,
 } from "lucide-react";
-import { tickets, messages } from "@/mock";
+import { useDataStore } from "@/store/dataStore";
 
 type TabType = "messages" | "tickets";
 type TicketType = "question" | "bug" | "feature" | "other";
 
 export default function Tickets() {
+  const { tickets, messages, addTicket, addTicketReply } = useDataStore();
+
   const [activeTab, setActiveTab] = useState<TabType>("tickets");
   const [selectedTicket, setSelectedTicket] = useState(tickets[0]);
   const [ticketFilter, setTicketFilter] = useState("all");
   const [searchText, setSearchText] = useState("");
   const [replyText, setReplyText] = useState("");
   const [showNewTicket, setShowNewTicket] = useState(false);
+
+  const [newTicketType, setNewTicketType] = useState<TicketType>("question");
+  const [newTicketTitle, setNewTicketTitle] = useState("");
+  const [newTicketContent, setNewTicketContent] = useState("");
+  const [newTicketApi, setNewTicketApi] = useState("");
+
+  const [titleError, setTitleError] = useState(false);
+  const [contentError, setContentError] = useState(false);
+  const [replyError, setReplyError] = useState(false);
+
+  const [showSuccessToast, setShowSuccessToast] = useState(false);
+
+  useEffect(() => {
+    if (tickets.length > 0 && !selectedTicket) {
+      setSelectedTicket(tickets[0]);
+    }
+  }, [tickets, selectedTicket]);
+
+  useEffect(() => {
+    if (tickets.length > 0) {
+      const exists = tickets.find((t) => t.id === selectedTicket?.id);
+      if (!exists) {
+        setSelectedTicket(tickets[0]);
+      } else if (exists) {
+        setSelectedTicket(exists);
+      }
+    }
+  }, [tickets]);
 
   const filteredTickets = tickets.filter((ticket) => {
     const matchesFilter =
@@ -106,6 +136,62 @@ export default function Tickets() {
     }
   };
 
+  const handleOpenNewTicket = () => {
+    setNewTicketType("question");
+    setNewTicketTitle("");
+    setNewTicketContent("");
+    setNewTicketApi("");
+    setTitleError(false);
+    setContentError(false);
+    setShowNewTicket(true);
+  };
+
+  const handleSubmitTicket = () => {
+    let hasError = false;
+
+    if (!newTicketTitle.trim()) {
+      setTitleError(true);
+      hasError = true;
+    } else {
+      setTitleError(false);
+    }
+
+    if (!newTicketContent.trim()) {
+      setContentError(true);
+      hasError = true;
+    } else {
+      setContentError(false);
+    }
+
+    if (hasError) {
+      return;
+    }
+
+    addTicket({
+      title: newTicketTitle.trim(),
+      content: newTicketContent.trim(),
+      type: newTicketType,
+    });
+
+    setShowNewTicket(false);
+    setShowSuccessToast(true);
+    setTimeout(() => setShowSuccessToast(false), 3000);
+  };
+
+  const handleSendReply = () => {
+    if (!replyText.trim()) {
+      setReplyError(true);
+      return;
+    }
+
+    setReplyError(false);
+    addTicketReply(selectedTicket.id, {
+      content: replyText.trim(),
+      author: "我",
+    });
+    setReplyText("");
+  };
+
   return (
     <div className="h-[calc(100vh-128px)] flex flex-col animate-fade-in">
       <div className="flex items-center justify-between mb-6">
@@ -117,7 +203,7 @@ export default function Tickets() {
         </div>
         {activeTab === "tickets" && (
           <button
-            onClick={() => setShowNewTicket(true)}
+            onClick={handleOpenNewTicket}
             className="btn-primary gap-2"
           >
             <Plus className="w-5 h-5" />
@@ -333,19 +419,31 @@ export default function Tickets() {
                   <div className="flex items-end gap-3">
                     <textarea
                       value={replyText}
-                      onChange={(e) => setReplyText(e.target.value)}
+                      onChange={(e) => {
+                        setReplyText(e.target.value);
+                        if (replyError && e.target.value.trim()) {
+                          setReplyError(false);
+                        }
+                      }}
                       placeholder="输入您的回复内容..."
-                      className="input flex-1 resize-none h-24 py-3"
+                      className={`input flex-1 resize-none h-24 py-3 ${
+                        replyError ? "border-red-500 focus:border-red-500" : ""
+                      }`}
                       onKeyDown={(e) => {
                         if (e.key === "Enter" && e.ctrlKey) {
-                          // send
+                          handleSendReply();
                         }
                       }}
                     />
-                    <button className="btn-primary h-24 px-6">
+                    <button onClick={handleSendReply} className="btn-primary h-24 px-6">
                       <Send className="w-5 h-5" />
                     </button>
                   </div>
+                  {replyError && (
+                    <p className="text-xs text-red-400 mt-2">
+                      请填写回复内容
+                    </p>
+                  )}
                   <p className="text-xs text-dark-500 mt-2">
                     按 Ctrl + Enter 快速发送
                   </p>
@@ -413,7 +511,11 @@ export default function Tickets() {
             <div className="space-y-4">
               <div>
                 <label className="label">工单类型</label>
-                <select className="input">
+                <select
+                  className="input"
+                  value={newTicketType}
+                  onChange={(e) => setNewTicketType(e.target.value as TicketType)}
+                >
                   <option value="question">问题咨询</option>
                   <option value="bug">Bug反馈</option>
                   <option value="feature">功能建议</option>
@@ -421,24 +523,52 @@ export default function Tickets() {
                 </select>
               </div>
               <div>
-                <label className="label">工单标题</label>
+                <label className="label">工单标题 <span className="text-red-400">*</span></label>
                 <input
                   type="text"
                   placeholder="请简要描述您的问题"
-                  className="input"
+                  className={`input ${titleError ? "border-red-500 focus:border-red-500" : ""}`}
+                  value={newTicketTitle}
+                  onChange={(e) => {
+                    setNewTicketTitle(e.target.value);
+                    if (titleError && e.target.value.trim()) {
+                      setTitleError(false);
+                    }
+                  }}
                 />
+                {titleError && (
+                  <p className="text-xs text-red-400 mt-1">
+                    请填写工单标题
+                  </p>
+                )}
               </div>
               <div>
-                <label className="label">问题描述</label>
+                <label className="label">问题描述 <span className="text-red-400">*</span></label>
                 <textarea
                   rows={5}
                   placeholder="请详细描述您遇到的问题或建议..."
-                  className="input resize-none"
+                  className={`input resize-none ${contentError ? "border-red-500 focus:border-red-500" : ""}`}
+                  value={newTicketContent}
+                  onChange={(e) => {
+                    setNewTicketContent(e.target.value);
+                    if (contentError && e.target.value.trim()) {
+                      setContentError(false);
+                    }
+                  }}
                 />
+                {contentError && (
+                  <p className="text-xs text-red-400 mt-1">
+                    请填写问题描述
+                  </p>
+                )}
               </div>
               <div>
                 <label className="label">关联接口</label>
-                <select className="input">
+                <select
+                  className="input"
+                  value={newTicketApi}
+                  onChange={(e) => setNewTicketApi(e.target.value)}
+                >
                   <option value="">请选择（可选）</option>
                   <option value="1">获取用户信息</option>
                   <option value="2">创建订单</option>
@@ -454,12 +584,22 @@ export default function Tickets() {
                 取消
               </button>
               <button
-                onClick={() => setShowNewTicket(false)}
+                onClick={handleSubmitTicket}
                 className="btn-primary"
               >
                 提交工单
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Success Toast */}
+      {showSuccessToast && (
+        <div className="fixed top-20 right-6 z-[60] animate-slide-up">
+          <div className="bg-green-500/10 border border-green-500/30 rounded-xl px-5 py-3 flex items-center gap-3">
+            <CheckCircle2 className="w-5 h-5 text-green-400" />
+            <span className="text-green-400 text-sm font-medium">工单创建成功</span>
           </div>
         </div>
       )}

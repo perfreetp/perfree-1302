@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
   Search,
   ChevronRight,
@@ -6,7 +5,6 @@ import {
   Clock,
   BookOpen,
   Lock,
-  Unlock,
   Tag,
   Filter,
   Users,
@@ -20,12 +18,15 @@ import {
 import { apis, apiCategories } from "@/mock";
 import type { Api } from "@/types";
 import { useNavigate } from "react-router-dom";
+import { useDataStore } from "@/store/dataStore";
 
 export default function ApiCatalog() {
-  const [selectedCategory, setSelectedCategory] = useState<string>("all");
-  const [searchText, setSearchText] = useState("");
-  const [selectedVersion, setSelectedVersion] = useState<string>("all");
   const navigate = useNavigate();
+  const { catalogFilter, setCatalogFilter } = useDataStore();
+
+  const selectedCategory = catalogFilter.category;
+  const searchText = catalogFilter.search;
+  const selectedVersion = catalogFilter.version;
 
   const categoryIcons: Record<string, typeof Users> = {
     "用户服务": Users,
@@ -40,6 +41,7 @@ export default function ApiCatalog() {
     const matchesCategory =
       selectedCategory === "all" || api.category === selectedCategory;
     const matchesSearch =
+      searchText.trim() === "" ||
       api.name.toLowerCase().includes(searchText.toLowerCase()) ||
       api.description.toLowerCase().includes(searchText.toLowerCase());
     const matchesVersion =
@@ -71,9 +73,12 @@ export default function ApiCatalog() {
     }
   };
 
+  const allVersions = Array.from(new Set(apis.map((a) => a.version))).sort(
+    (a, b) => parseFloat(b.slice(1)) - parseFloat(a.slice(1))
+  );
+
   return (
     <div className="flex gap-6 h-[calc(100vh-128px)] animate-fade-in">
-      {/* Sidebar - Categories */}
       <div className="w-64 flex-shrink-0">
         <div className="card p-4 sticky top-24">
           <h3 className="font-semibold text-white mb-4 flex items-center gap-2">
@@ -83,7 +88,7 @@ export default function ApiCatalog() {
           <ul className="space-y-1">
             <li>
               <button
-                onClick={() => setSelectedCategory("all")}
+                onClick={() => setCatalogFilter({ category: "all" })}
                 className={`w-full text-left px-3 py-2.5 rounded-lg text-sm flex items-center justify-between transition-colors ${
                   selectedCategory === "all"
                     ? "bg-primary-500/10 text-primary-400"
@@ -102,7 +107,7 @@ export default function ApiCatalog() {
               return (
                 <li key={cat.id}>
                   <button
-                    onClick={() => setSelectedCategory(cat.name)}
+                    onClick={() => setCatalogFilter({ category: cat.name })}
                     className={`w-full text-left px-3 py-2.5 rounded-lg text-sm flex items-center justify-between transition-colors ${
                       selectedCategory === cat.name
                         ? "bg-primary-500/10 text-primary-400"
@@ -122,9 +127,7 @@ export default function ApiCatalog() {
         </div>
       </div>
 
-      {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-bold text-white">接口目录</h1>
@@ -136,7 +139,6 @@ export default function ApiCatalog() {
           </div>
         </div>
 
-        {/* Search & Filter Bar */}
         <div className="card p-4 mb-6">
           <div className="flex items-center gap-4">
             <div className="relative flex-1 max-w-md">
@@ -145,7 +147,7 @@ export default function ApiCatalog() {
                 type="text"
                 placeholder="搜索接口名称、描述..."
                 value={searchText}
-                onChange={(e) => setSearchText(e.target.value)}
+                onChange={(e) => setCatalogFilter({ search: e.target.value })}
                 className="input pl-10 w-full"
               />
             </div>
@@ -153,17 +155,15 @@ export default function ApiCatalog() {
               <Filter className="w-4 h-4 text-dark-400" />
               <select
                 value={selectedVersion}
-                onChange={(e) => setSelectedVersion(e.target.value)}
+                onChange={(e) => setCatalogFilter({ version: e.target.value })}
                 className="input w-32 py-2"
               >
                 <option value="all">全部版本</option>
-                <option value="v2.1">v2.1</option>
-                <option value="v2.0">v2.0</option>
-                <option value="v1.5">v1.5</option>
-                <option value="v1.4">v1.4</option>
-                <option value="v1.3">v1.3</option>
-                <option value="v1.2">v1.2</option>
-                <option value="v1.0">v1.0</option>
+                {allVersions.map((v) => (
+                  <option key={v} value={v}>
+                    {v}
+                  </option>
+                ))}
               </select>
             </div>
             <div className="text-sm text-dark-400 ml-auto">
@@ -176,7 +176,6 @@ export default function ApiCatalog() {
           </div>
         </div>
 
-        {/* API List */}
         <div className="flex-1 overflow-y-auto space-y-4 pr-2">
           {filteredApis.map((api, index) => (
             <div
@@ -246,9 +245,7 @@ export default function ApiCatalog() {
               <h3 className="text-lg font-medium text-white mb-2">
                 未找到相关接口
               </h3>
-              <p className="text-dark-400">
-                试试其他关键词或分类吧
-              </p>
+              <p className="text-dark-400">试试其他关键词或分类吧</p>
             </div>
           )}
         </div>

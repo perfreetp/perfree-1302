@@ -30,13 +30,32 @@ import {
   CartesianGrid,
   Tooltip,
 } from "recharts";
-import { partners, apis, callStats, permissions } from "@/mock";
+import { apis, callStats } from "@/mock";
+import { useDataStore, exportToCSV } from "@/store/dataStore";
 
 type AdminTab = "dashboard" | "audit" | "apis" | "permissions" | "monitor" | "reports";
 
 export default function AdminConsole() {
   const [activeTab, setActiveTab] = useState<AdminTab>("dashboard");
   const [searchText, setSearchText] = useState("");
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const [extendModalOpen, setExtendModalOpen] = useState(false);
+  const [currentPermission, setCurrentPermission] = useState<string | null>(null);
+  const [extendDate, setExtendDate] = useState("");
+  const [extendQuota, setExtendQuota] = useState("");
+
+  const {
+    partners,
+    permissions,
+    approvePartner,
+    rejectPartner,
+    extendPermission,
+  } = useDataStore();
+
+  const showToast = (message: string, type: "success" | "error" = "success") => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  };
 
   const pendingPartners = partners.filter((p) => p.status === "pending");
   const pendingPermissions = permissions.filter((p) => p.status === "pending");
@@ -70,8 +89,130 @@ export default function AdminConsole() {
     { key: "reports", label: "报表导出", icon: Download },
   ];
 
+  const handleApprovePartner = (partnerId: string) => {
+    approvePartner(partnerId);
+    showToast("合作方审核已通过");
+  };
+
+  const handleRejectPartner = (partnerId: string) => {
+    rejectPartner(partnerId);
+    showToast("合作方申请已拒绝");
+  };
+
+  const handleOpenExtendModal = (permId: string, currentExpiresAt: string, currentQuota: number) => {
+    setCurrentPermission(permId);
+    setExtendDate(currentExpiresAt || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]);
+    setExtendQuota(String(currentQuota || 10000));
+    setExtendModalOpen(true);
+  };
+
+  const handleConfirmExtend = () => {
+    if (!currentPermission || !extendDate) {
+      showToast("请填写完整的延期信息", "error");
+      return;
+    }
+    const quotaNum = parseInt(extendQuota, 10);
+    if (isNaN(quotaNum) || quotaNum <= 0) {
+      showToast("请输入有效的额度值", "error");
+      return;
+    }
+    extendPermission(currentPermission, extendDate, quotaNum);
+    setExtendModalOpen(false);
+    setCurrentPermission(null);
+    showToast("权限延期成功");
+  };
+
+  const handleExportReport = () => {
+    const reportData = partners.map((p) => ({
+      name: p.name,
+      contact: p.contact,
+      email: p.email,
+      appCount: p.appCount,
+      totalCalls: p.totalCalls,
+      status: p.status === "approved" ? "已通过" : p.status === "pending" ? "待审核" : "已拒绝",
+      appliedAt: p.appliedAt,
+    }));
+
+    const now = new Date();
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, "0");
+    const dd = String(now.getDate()).padStart(2, "0");
+    const filename = `合作方用量报表_${yyyy}${mm}${dd}.csv`;
+
+    exportToCSV(reportData, filename);
+    showToast("报表导出成功");
+  };
+
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-6 animate-fade-in relative">
+      {toast && (
+        <div
+          className={`fixed top-6 right-6 z-50 px-5 py-3 rounded-lg shadow-lg border flex items-center gap-2 animate-fade-in ${
+            toast.type === "success"
+              ? "bg-green-500/20 border-green-500/50 text-green-400"
+              : "bg-red-500/20 border-red-500/50 text-red-400"
+          }`}
+        >
+          {toast.type === "success" ? (
+            <Check className="w-5 h-5" />
+          ) : (
+            <X className="w-5 h-5" />
+          )}
+          <span className="font-medium">{toast.message}</span>
+        </div>
+      )}
+
+      {extendModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="card p-6 w-full max-w-md animate-fade-in">
+            <h3 className="text-lg font-semibold text-white mb-5 flex items-center gap-2">
+              <Calendar className="w-5 h-5 text-primary-400" />
+              权限延期
+            </h3>
+            <div className="space-y-4">
+              <div>
+                <label className="label">延期至日期</label>
+                <div className="relative">
+                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-dark-500" />
+                  <input
+                    type="date"
+                    value={extendDate}
+                    onChange={(e) => setExtendDate(e.target.value)}
+                    className="input pl-10"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="label">新额度（次/天）</label>
+                <input
+                  type="number"
+                  value={extendQuota}
+                  onChange={(e) => setExtendQuota(e.target.value)}
+                  placeholder="请输入额度"
+                  min="1"
+                  className="input"
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-3 mt-6">
+              <button
+                className="btn-secondary"
+                onClick={() => {
+                  setExtendModalOpen(false);
+                  setCurrentPermission(null);
+                }}
+              >
+                取消
+              </button>
+              <button className="btn-primary gap-2" onClick={handleConfirmExtend}>
+                <Check className="w-4 h-4" />
+                确认延期
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white flex items-center gap-3">
@@ -317,11 +458,17 @@ export default function AdminConsole() {
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
-                      <button className="btn-primary btn-sm gap-2">
+                      <button
+                        className="btn-primary btn-sm gap-2"
+                        onClick={() => handleApprovePartner(partner.id)}
+                      >
                         <Check className="w-4 h-4" />
                         通过审核
                       </button>
-                      <button className="btn-secondary btn-sm gap-2">
+                      <button
+                        className="btn-secondary btn-sm gap-2"
+                        onClick={() => handleRejectPartner(partner.id)}
+                      >
                         <X className="w-4 h-4" />
                         拒绝
                       </button>
@@ -644,7 +791,10 @@ export default function AdminConsole() {
                         </span>
                       </td>
                       <td className="px-6 py-4">
-                        <button className="text-primary-400 hover:text-primary-300 text-sm mr-3">
+                        <button
+                          className="text-primary-400 hover:text-primary-300 text-sm mr-3"
+                          onClick={() => handleOpenExtendModal(perm.id, perm.expiresAt, perm.quota)}
+                        >
                           延期
                         </button>
                         <button className="text-primary-400 hover:text-primary-300 text-sm">
@@ -854,7 +1004,7 @@ export default function AdminConsole() {
             </div>
             <div className="flex items-center justify-end gap-3 mt-6">
               <button className="btn-secondary">预览</button>
-              <button className="btn-primary gap-2">
+              <button className="btn-primary gap-2" onClick={handleExportReport}>
                 <Download className="w-4 h-4" />
                 导出 Excel
               </button>

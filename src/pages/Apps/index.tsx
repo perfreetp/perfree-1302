@@ -13,14 +13,46 @@ import {
   AppWindow,
   Clock,
   Layers,
+  X,
 } from "lucide-react";
-import { applications } from "@/mock";
+import { useDataStore } from "@/store/dataStore";
 import type { Application } from "@/types";
 
+interface FormData {
+  name: string;
+  organization: string;
+  category: string;
+  environment: "sandbox" | "production";
+  description: string;
+}
+
+interface FormErrors {
+  name?: string;
+  organization?: string;
+}
+
+const categoryOptions = [
+  { value: "电商", label: "电商" },
+  { value: "金融", label: "金融" },
+  { value: "物流", label: "物流" },
+  { value: "营销", label: "营销" },
+  { value: "其他", label: "其他" },
+];
+
 export default function Apps() {
+  const { applications, addApplication } = useDataStore();
   const [searchText, setSearchText] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [formData, setFormData] = useState<FormData>({
+    name: "",
+    organization: "",
+    category: "电商",
+    environment: "sandbox",
+    description: "",
+  });
+  const [formErrors, setFormErrors] = useState<FormErrors>({});
 
   const filteredApps = applications.filter((app) => {
     const matchesSearch =
@@ -65,6 +97,62 @@ export default function Apps() {
     );
   };
 
+  const validateForm = (): boolean => {
+    const errors: FormErrors = {};
+    if (!formData.name.trim()) {
+      errors.name = "请填写应用名称";
+    }
+    if (!formData.organization.trim()) {
+      errors.organization = "请填写组织/企业名称";
+    }
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleOpenModal = () => {
+    setFormData({
+      name: "",
+      organization: "",
+      category: "电商",
+      environment: "sandbox",
+      description: "",
+    });
+    setFormErrors({});
+    setShowCreateModal(true);
+  };
+
+  const handleCloseModal = () => {
+    setShowCreateModal(false);
+    setFormErrors({});
+  };
+
+  const handleSubmit = () => {
+    if (!validateForm()) {
+      return;
+    }
+    addApplication({
+      name: formData.name.trim(),
+      description: formData.description.trim() || "暂无描述",
+      status: "pending",
+      environment: formData.environment,
+      category: formData.category,
+      icon: "",
+    });
+    setShowCreateModal(false);
+    alert("应用创建成功！");
+  };
+
+  const handleInputChange = (field: keyof FormData, value: string) => {
+    setFormData((prev) => ({ ...prev, [field]: value }));
+    if (formErrors[field as keyof FormErrors]) {
+      setFormErrors((prev) => {
+        const next = { ...prev };
+        delete next[field as keyof FormErrors];
+        return next;
+      });
+    }
+  };
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
@@ -74,7 +162,7 @@ export default function Apps() {
             管理您的应用，查看凭证和配置
           </p>
         </div>
-        <button className="btn-primary gap-2">
+        <button onClick={handleOpenModal} className="btn-primary gap-2">
           <Plus className="w-5 h-5" />
           创建应用
         </button>
@@ -240,6 +328,142 @@ export default function Apps() {
           </div>
         ))}
       </div>
+
+      {/* Create App Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
+          <div className="bg-dark-900 rounded-2xl border border-dark-700 w-full max-w-lg p-6 animate-slide-up">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-bold text-white">创建应用</h3>
+              <button
+                onClick={handleCloseModal}
+                className="p-2 rounded-lg hover:bg-dark-800 text-dark-400 hover:text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="label">
+                  应用名称 <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="请输入应用名称"
+                  value={formData.name}
+                  onChange={(e) => handleInputChange("name", e.target.value)}
+                  className={`input ${
+                    formErrors.name
+                      ? "border-red-500 focus:border-red-500 focus:ring-red-500/20"
+                      : ""
+                  }`}
+                />
+                {formErrors.name && (
+                  <p className="mt-1 text-xs text-red-500">{formErrors.name}</p>
+                )}
+              </div>
+              <div>
+                <label className="label">
+                  组织/企业名称 <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="请输入组织/企业名称"
+                  value={formData.organization}
+                  onChange={(e) => handleInputChange("organization", e.target.value)}
+                  className={`input ${
+                    formErrors.organization
+                      ? "border-red-500 focus:border-red-500 focus:ring-red-500/20"
+                      : ""
+                  }`}
+                />
+                {formErrors.organization && (
+                  <p className="mt-1 text-xs text-red-500">{formErrors.organization}</p>
+                )}
+              </div>
+              <div>
+                <label className="label">应用类型/分类</label>
+                <select
+                  value={formData.category}
+                  onChange={(e) => handleInputChange("category", e.target.value)}
+                  className="input"
+                >
+                  {categoryOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="label">环境选择</label>
+                <div className="flex items-center gap-4">
+                  <label
+                    className={`flex items-center gap-2 px-4 py-2.5 rounded-lg border cursor-pointer transition-colors ${
+                      formData.environment === "sandbox"
+                        ? "border-accent-500 bg-accent-500/10 text-accent-400"
+                        : "border-dark-700 text-dark-400 hover:border-dark-600"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="environment"
+                      value="sandbox"
+                      checked={formData.environment === "sandbox"}
+                      onChange={() => handleInputChange("environment", "sandbox")}
+                      className="hidden"
+                    />
+                    <FlaskConical className="w-4 h-4" />
+                    <span className="text-sm font-medium">沙箱环境</span>
+                  </label>
+                  <label
+                    className={`flex items-center gap-2 px-4 py-2.5 rounded-lg border cursor-pointer transition-colors ${
+                      formData.environment === "production"
+                        ? "border-primary-500 bg-primary-500/10 text-primary-400"
+                        : "border-dark-700 text-dark-400 hover:border-dark-600"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="environment"
+                      value="production"
+                      checked={formData.environment === "production"}
+                      onChange={() => handleInputChange("environment", "production")}
+                      className="hidden"
+                    />
+                    <Globe className="w-4 h-4" />
+                    <span className="text-sm font-medium">生产环境</span>
+                  </label>
+                </div>
+              </div>
+              <div>
+                <label className="label">应用描述</label>
+                <textarea
+                  rows={4}
+                  placeholder="请输入应用描述（选填）"
+                  value={formData.description}
+                  onChange={(e) => handleInputChange("description", e.target.value)}
+                  className="input resize-none"
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-3 mt-6">
+              <button
+                onClick={handleCloseModal}
+                className="btn-secondary"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleSubmit}
+                className="btn-primary"
+              >
+                提交
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

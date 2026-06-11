@@ -3,6 +3,7 @@ import Layout from "@/components/layout/Layout";
 import Portal from "@/pages/Portal";
 import Apps from "@/pages/Apps";
 import ApiCatalog from "@/pages/ApiCatalog";
+import ApiDetail from "@/pages/ApiCatalog/ApiDetail";
 import Debugger from "@/pages/Debugger";
 import KeysPermissions from "@/pages/KeysPermissions";
 import Monitor from "@/pages/Monitor";
@@ -18,6 +19,7 @@ export default function App() {
           <Route path="/portal" element={<Portal />} />
           <Route path="/apps" element={<Apps />} />
           <Route path="/apis" element={<ApiCatalog />} />
+          <Route path="/apis/:id" element={<ApiDetail />} />
           <Route path="/debugger" element={<Debugger />} />
           <Route path="/keys" element={<KeysPermissions />} />
           <Route path="/monitor" element={<Monitor />} />
